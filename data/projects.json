@@ -1,0 +1,48 @@
+[
+  {
+    "id": "proj_q62pix0rj",
+    "name": "test",
+    "description": "",
+    "createdAt": "2026-06-24T17:59:38.772Z",
+    "prompts": [
+      {
+        "id": "prompt_1kgxqb6uj",
+        "name": "programmer",
+        "description": "",
+        "tags": [],
+        "createdAt": "2026-06-24T18:00:10.667Z",
+        "updatedAt": "2026-06-24T18:27:27.887Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "",
+            "template": "Hello {{name}}, welcome to PromptForge!",
+            "variables": [
+              "name"
+            ],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 1024
+            },
+            "createdAt": "2026-06-24T18:00:10.667Z",
+            "description": "Initial version"
+          },
+          {
+            "version": 2,
+            "systemInstruction": "You are a helpful programming assistant",
+            "template": "Come up with {{amount}} ideas for a programming portfolio",
+            "variables": [
+              "amount"
+            ],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 20000
+            },
+            "createdAt": "2026-06-24T18:27:27.887Z",
+            "description": "Saved on 2026-06-24"
+          }
+        ]
+      }
+    ]
+  }
+]

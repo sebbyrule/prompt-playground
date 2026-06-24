@@ -1,0 +1,34 @@
+[
+  {
+    "id": "run_yooz8gnff",
+    "timestamp": "2026-06-24T18:31:07.316Z",
+    "projectName": "test",
+    "promptName": "programmer (v2 Eval: 0% Pass)",
+    "model": "lmstudio/local-model",
+    "metrics": {
+      "durationMs": 40596,
+      "tokenUsage": {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0
+      }
+    },
+    "passed": false
+  },
+  {
+    "id": "run_50scfd19u",
+    "timestamp": "2026-06-24T18:28:54.816Z",
+    "projectName": "test",
+    "promptName": "programmer",
+    "model": "lmstudio/local-model",
+    "metrics": {
+      "durationMs": 43878,
+      "tokenUsage": {
+        "inputTokens": 33,
+        "outputTokens": 2079,
+        "totalTokens": 2112
+      },
+      "costEstimate": 0
+    }
+  }
+]
