@@ -417,6 +417,81 @@ export const AgentWorkspace: React.FC = () => {
 
   // --- Session History / Chat Methods ---
 
+  const getDisplayTrace = (sess: ChatSession | null): any[] => {
+    if (!sess) return [];
+    if (sess.trace && sess.trace.length > 0) return sess.trace;
+    
+    const reconstructedTrace: any[] = [];
+    const messages = sess.messages || [];
+    
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        if (msg.parts && msg.parts.length > 0 && msg.parts[0].functionResponse) {
+          msg.parts.forEach((p: any) => {
+            if (p.functionResponse) {
+              const resObj = p.functionResponse.response;
+              reconstructedTrace.push({
+                role: 'tool',
+                name: p.functionResponse.name,
+                toolCallId: p.functionResponse.name,
+                content: typeof resObj === 'object' ? JSON.stringify(resObj, null, 2) : String(resObj)
+              });
+            }
+          });
+        } else {
+          const text = msg.content || (msg.parts && msg.parts.map((p: any) => p.text).filter(Boolean).join('\n')) || '';
+          reconstructedTrace.push({
+            role: 'user',
+            content: text
+          });
+        }
+      } else if (msg.role === 'assistant' || msg.role === 'model') {
+        let toolCalls = null;
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          toolCalls = msg.tool_calls.map((tc: any) => ({
+            id: tc.id,
+            name: tc.function?.name || tc.name,
+            args: typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function?.arguments || tc.args
+          }));
+        } else if (msg.parts && msg.parts.length > 0) {
+          const fnCallParts = msg.parts.filter((p: any) => p.functionCall);
+          if (fnCallParts.length > 0) {
+            toolCalls = fnCallParts.map((fc: any, idx: number) => ({
+              id: 'gen_call_' + idx,
+              name: fc.functionCall.name,
+              args: fc.functionCall.args
+            }));
+          }
+        }
+        
+        if (toolCalls && toolCalls.length > 0) {
+          reconstructedTrace.push({
+            role: 'model',
+            type: 'tool_call',
+            toolCalls
+          });
+        }
+        
+        const text = msg.content || (msg.parts && msg.parts.map((p: any) => p.text).filter(Boolean).join('\n')) || '';
+        if (text) {
+          reconstructedTrace.push({
+            role: 'model',
+            type: 'text',
+            content: text
+          });
+        }
+      } else if (msg.role === 'tool') {
+        reconstructedTrace.push({
+          role: 'tool',
+          name: msg.name,
+          toolCallId: msg.tool_call_id,
+          content: msg.content
+        });
+      }
+    }
+    return reconstructedTrace;
+  };
+
   const handleCreateSession = async () => {
     const activeSkill = skills.find(s => s.id === chatSkillId);
     if (!activeSkill) return;
@@ -694,7 +769,10 @@ export const AgentWorkspace: React.FC = () => {
     if (!window.confirm('Rewind conversation to this step? All subsequent exchanges will be deleted.')) return;
 
     // Truncate the trace array
-    const nextTrace = activeSession.trace.slice(0, traceIndex + 1);
+    const currentTrace = activeSession.trace && activeSession.trace.length > 0
+      ? activeSession.trace
+      : getDisplayTrace(activeSession);
+    const nextTrace = currentTrace.slice(0, traceIndex + 1);
 
     // Reconstruct conversation history array from remaining trace
     const nextHistory: ChatMessage[] = [];
@@ -1235,7 +1313,7 @@ export const AgentWorkspace: React.FC = () => {
                   )}
 
                   {/* Render inline trace conversation blocks */}
-                  {activeSession.trace && activeSession.trace.map((step, index) => {
+                  {getDisplayTrace(activeSession).map((step, index) => {
                     if (step.role === 'user') {
                       return (
                         <div key={index} className="chat-row user-row">

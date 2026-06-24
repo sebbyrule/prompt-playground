@@ -56,5 +56,8 @@ export const db = {
   saveSkills: (skills) => writeJsonFile('skills.json', skills),
 
   getSessions: () => readJsonFile('sessions.json', []),
-  saveSessions: (sessions) => writeJsonFile('sessions.json', sessions)
+  saveSessions: (sessions) => writeJsonFile('sessions.json', sessions),
+
+  getElo: () => readJsonFile('elo.json', {}),
+  saveElo: (elo) => writeJsonFile('elo.json', elo)
 };

@@ -1,0 +1,122 @@
+[
+  {
+    "id": "tool_shipping",
+    "name": "calculate_shipping_cost",
+    "description": "Calculate shipping rate based on destination country and item weight.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "Destination country code (e.g. US, CA, UK)"
+        },
+        "weight": {
+          "type": "number",
+          "description": "Weight of the parcel in pounds"
+        }
+      },
+      "required": ["destination", "weight"]
+    },
+    "mockResponse": "{\n  \"status\": \"success\",\n  \"rate\": 8.99,\n  \"estimated_days\": 3\n}",
+    "executionMode": "javascript",
+    "code": "async function execute(args) {\n  const destination = (args.destination || 'US').toUpperCase();\n  const weight = Number(args.weight) || 1;\n  let baseRate = 5.0;\n  if (destination !== 'US') {\n    baseRate = 15.0;\n  }\n  const rate = baseRate + weight * 1.5;\n  const days = destination === 'US' ? 3 : 7;\n  return { \n    status: 'success', \n    rate: Number(rate.toFixed(2)), \n    estimated_days: days \n  };\n}",
+    "createdAt": "2026-06-24T18:48:00.000Z"
+  },
+  {
+    "id": "tool_stock",
+    "name": "get_stock_quote",
+    "description": "Fetch real-time stock price symbol quote information.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "description": "Stock ticker symbol (e.g. GOOG, AAPL, MSFT)"
+        }
+      },
+      "required": ["symbol"]
+    },
+    "mockResponse": "{\n  \"symbol\": \"GOOG\",\n  \"price\": 182.50,\n  \"change\": 1.25\n}",
+    "executionMode": "javascript",
+    "code": "async function execute(args) {\n  const symbol = (args.symbol || 'GOOG').toUpperCase();\n  const prices = {\n    GOOG: { price: 182.50, change: 1.25 },\n    AAPL: { price: 175.20, change: -0.45 },\n    MSFT: { price: 420.10, change: 3.80 },\n    AMZN: { price: 185.00, change: 0.90 }\n  };\n  const result = prices[symbol] || { price: 100.00, change: 0.0 };\n  return {\n    symbol,\n    price: Number(result.price.toFixed(2)),\n    change: Number(result.change.toFixed(2))\n  };\n}",
+    "createdAt": "2026-06-24T18:48:10.000Z"
+  },
+  {
+    "id": "tool_weather",
+    "name": "fetch_weather",
+    "description": "Fetch real-time weather information for a specific city.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "The city name (e.g., London, New York, Tokyo)"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["celsius", "fahrenheit"],
+          "description": "Temperature unit preferred"
+        }
+      },
+      "required": ["city"]
+    },
+    "mockResponse": "{\n  \"city\": \"New York\",\n  \"temperature\": 22,\n  \"unit\": \"celsius\",\n  \"condition\": \"Partly Cloudy\",\n  \"humidity\": 60\n}",
+    "executionMode": "javascript",
+    "code": "async function execute(args) {\n  const city = args.city || 'Unknown';\n  const unit = args.unit || 'celsius';\n  const conditions = ['Sunny', 'Rainy', 'Cloudy', 'Partly Cloudy', 'Windy'];\n  const randomCondition = conditions[Math.floor(Math.random() * conditions.length)];\n  let temp = 15 + Math.floor(Math.random() * 15);\n  if (unit === 'fahrenheit') {\n    temp = Math.round((temp * 9/5) + 32);\n  }\n  return {\n    city,\n    temperature: temp,\n    unit,\n    condition: randomCondition,\n    humidity: 50 + Math.floor(Math.random() * 30)\n  };\n}",
+    "createdAt": "2026-06-24T18:49:00.000Z"
+  },
+  {
+    "id": "tool_password",
+    "name": "generate_password",
+    "description": "Generate a secure, random password with custom complexity options.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "length": {
+          "type": "number",
+          "description": "Length of the password (default 12, min 6, max 64)"
+        },
+        "includeSymbols": {
+          "type": "boolean",
+          "description": "Whether to include special characters like @, #, $, etc."
+        },
+        "includeNumbers": {
+          "type": "boolean",
+          "description": "Whether to include numeric digits 0-9"
+        }
+      },
+      "required": []
+    },
+    "mockResponse": "{\n  \"password\": \"aB3$kL9#mP1x\"\n}",
+    "executionMode": "javascript",
+    "code": "async function execute(args) {\n  const length = Math.max(6, Math.min(64, Number(args.length) || 12));\n  const includeSymbols = args.includeSymbols !== false;\n  const includeNumbers = args.includeNumbers !== false;\n  const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';\n  const numbers = '0123456789';\n  const symbols = '!@#$%^&*()_+~`|}{[]:;?><,./-=';\n  let chars = letters;\n  if (includeNumbers) chars += numbers;\n  if (includeSymbols) chars += symbols;\n  let password = '';\n  for (let i = 0; i < length; i++) {\n    password += chars.charAt(Math.floor(Math.random() * chars.length));\n  }\n  return { password };\n}",
+    "createdAt": "2026-06-24T18:49:10.000Z"
+  },
+  {
+    "id": "tool_currency",
+    "name": "convert_currency",
+    "description": "Convert currency amount from one base to another.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "The amount of currency to convert"
+        },
+        "from": {
+          "type": "string",
+          "description": "Base currency (e.g. USD, EUR, GBP)"
+        },
+        "to": {
+          "type": "string",
+          "description": "Target currency (e.g. USD, EUR, GBP, JPY)"
+        }
+      },
+      "required": ["amount", "from", "to"]
+    },
+    "mockResponse": "{\n  \"from\": \"USD\",\n  \"to\": \"EUR\",\n  \"amount\": 100,\n  \"convertedAmount\": 92.50,\n  \"rate\": 0.925\n}",
+    "executionMode": "javascript",
+    "code": "async function execute(args) {\n  const amount = Number(args.amount) || 0;\n  const from = (args.from || 'USD').toUpperCase();\n  const to = (args.to || 'USD').toUpperCase();\n  const rates = {\n    USD: { EUR: 0.92, GBP: 0.79, JPY: 155.4, CAD: 1.36, USD: 1 },\n    EUR: { USD: 1.09, GBP: 0.86, JPY: 168.9, CAD: 1.48, EUR: 1 },\n    GBP: { USD: 1.27, EUR: 1.16, JPY: 196.7, CAD: 1.72, GBP: 1 }\n  };\n  const baseRates = rates[from] || rates['USD'];\n  const rate = baseRates[to] || (from === to ? 1 : 1.1);\n  const convertedAmount = amount * rate;\n  return {\n    from,\n    to,\n    amount,\n    convertedAmount: Number(convertedAmount.toFixed(2)),\n    rate: Number(rate.toFixed(4))\n  };\n}",
+    "createdAt": "2026-06-24T18:49:20.000Z"
+  }
+]

@@ -248,6 +248,149 @@ export const Evaluator: React.FC = () => {
     }
   };
 
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+
+      if (file.name.endsWith('.json')) {
+        parseJsonDataset(text);
+      } else if (file.name.endsWith('.csv')) {
+        parseCsvDataset(text);
+      } else {
+        alert('Unsupported file format. Please upload a .json or .csv file.');
+      }
+    };
+    reader.readAsText(file);
+    // Clear the input value so that importing the same file again triggers change event
+    e.target.value = '';
+  };
+
+  const parseJsonDataset = (rawText: string) => {
+    try {
+      const parsed = JSON.parse(rawText);
+      if (!Array.isArray(parsed)) {
+        throw new Error('JSON dataset must be an array of test cases.');
+      }
+
+      const importedCases: TestCase[] = parsed.map((item, idx) => {
+        const caseVars: { [key: string]: string } = {};
+        if (item.variables && typeof item.variables === 'object') {
+          for (const [k, v] of Object.entries(item.variables)) {
+            caseVars[k] = String(v);
+          }
+        }
+
+        const caseAssertions: Assertion[] = [];
+        if (Array.isArray(item.assertions)) {
+          item.assertions.forEach((ast: any) => {
+            if (ast && ast.type && ast.value !== undefined) {
+              caseAssertions.push({
+                type: ast.type,
+                value: String(ast.value)
+              });
+            }
+          });
+        }
+
+        if (caseAssertions.length === 0) {
+          caseAssertions.push({ type: 'contains', value: '' });
+        }
+
+        return {
+          id: 'tc_' + Math.random().toString(36).substr(2, 9) + '_' + idx,
+          name: item.name || `Imported Case ${idx + 1}`,
+          variables: caseVars,
+          assertions: caseAssertions
+        };
+      });
+
+      setTestCaseStates([...testCases, ...importedCases]);
+      alert(`Successfully imported ${importedCases.length} test cases from JSON!`);
+    } catch (e: any) {
+      alert(`Failed to parse JSON dataset: ${e.message}`);
+    }
+  };
+
+  const parseCsvDataset = (rawText: string) => {
+    try {
+      const parseCsvLine = (line: string) => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      const lines = rawText.split(/\r?\n/).filter(line => line.trim().length > 0);
+      if (lines.length < 2) {
+        throw new Error('CSV must contain a header row and at least one data row.');
+      }
+
+      const headers = parseCsvLine(lines[0]);
+      const importedCases: TestCase[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseCsvLine(lines[i]);
+        if (row.length === 0 || (row.length === 1 && row[0] === '')) continue;
+
+        const caseVars: { [key: string]: string } = {};
+        let caseName = `CSV Case ${i}`;
+        const caseAssertions: Assertion[] = [];
+
+        headers.forEach((header, idx) => {
+          const val = row[idx] || '';
+          const lowerHeader = header.toLowerCase();
+
+          if (lowerHeader === 'case_name' || lowerHeader === 'name') {
+            caseName = val;
+          } else if (lowerHeader === 'expected_contains' || lowerHeader === 'expected_output' || lowerHeader === 'assertion_contains') {
+            if (val) {
+              caseAssertions.push({ type: 'contains', value: val });
+            }
+          } else if (lowerHeader === 'assertion_not_contains') {
+            if (val) {
+              caseAssertions.push({ type: 'not_contains', value: val });
+            }
+          } else {
+            caseVars[header] = val;
+          }
+        });
+
+        if (caseAssertions.length === 0) {
+          caseAssertions.push({ type: 'contains', value: '' });
+        }
+
+        importedCases.push({
+          id: 'tc_' + Math.random().toString(36).substr(2, 9) + '_' + i,
+          name: caseName,
+          variables: caseVars,
+          assertions: caseAssertions
+        });
+      }
+
+      setTestCaseStates([...testCases, ...importedCases]);
+      alert(`Successfully imported ${importedCases.length} test cases from CSV!`);
+    } catch (e: any) {
+      alert(`Failed to parse CSV dataset: ${e.message}`);
+    }
+  };
+
   const handleRunEvaluation = async () => {
     if (!currentPrompt) return;
     
@@ -428,6 +571,20 @@ export const Evaluator: React.FC = () => {
                   </button>
                 </div>
               )}
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => document.getElementById('dataset-import-input')?.click()}
+                disabled={!selectedPromptId}
+              >
+                Import Dataset (CSV/JSON)
+              </button>
+              <input 
+                type="file"
+                id="dataset-import-input"
+                accept=".csv,.json"
+                onChange={handleImportFileChange}
+                style={{ display: 'none' }}
+              />
               <button className="btn btn-secondary" onClick={addTestCase}>
                 <PlusCircle size={16} />
                 Add Test Case

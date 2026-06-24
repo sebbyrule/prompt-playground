@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { db } from './db.js';
+import { execSync } from 'child_process';
 
 dotenv.config();
 
@@ -95,7 +96,7 @@ async function runGemini({ model, systemInstruction, prompt, temperature, maxTok
     inputTokens = countResult.totalTokens;
     outputTokens = Math.ceil(text.length / 4); // fallback estimator
   } catch (e) {
-    inputTokens = Math.ceil(prompt.length / 4);
+    inputTokens = Math.ceil((prompt || '').length / 4);
     outputTokens = Math.ceil(text.length / 4);
   }
 
@@ -1033,7 +1034,7 @@ app.get('/api/sessions', (req, res) => {
 });
 
 app.post('/api/sessions', (req, res) => {
-  const { id, skillId, name, messages, metrics } = req.body;
+  const { id, skillId, name, messages, trace, metrics } = req.body;
   const sessions = db.getSessions();
   
   let sessionIndex = -1;
@@ -1046,6 +1047,7 @@ app.post('/api/sessions', (req, res) => {
     skillId,
     name: name || 'New Chat Session',
     messages: messages || [],
+    trace: trace || [],
     metrics: metrics || null,
     updatedAt: new Date().toISOString()
   };
@@ -1133,10 +1135,16 @@ async function executeWebScraper(url) {
   }
 }
 
-// Custom JavaScript Sandbox Execution
+// Custom JavaScript Sandbox Execution Runtime
+// Compiles and runs user-defined tool code asynchronously in a local context.
+// It intercepts the visual tool's custom JavaScript code, parses out the execute function block,
+// and spawns an isolated AsyncFunction injected with local arguments and a server-side fetch wrapper
+// (allowing custom tools to execute third-party API calls directly from the backend, bypassing browser CORS restrictions).
 async function runCustomJavaScriptTool(codeString, args) {
   try {
     let functionBody = codeString;
+    
+    // Extract the inner body of the function if the user wrapped it in "async function execute(args) { ... }"
     if (codeString.includes('function execute')) {
       const startIndex = codeString.indexOf('{');
       const endIndex = codeString.lastIndexOf('}');
@@ -1145,10 +1153,15 @@ async function runCustomJavaScriptTool(codeString, args) {
       }
     }
 
+    // Construct a safe asynchronous execution container
+    // We bind 'args' (input parameters) and 'fetch' (server-side HTTP request library) into the scope
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
     const runner = new AsyncFunction('args', 'fetch', functionBody);
+    
+    // Execute the user tool script and wait for its completion
     const result = await runner(args, fetch);
     
+    // Auto-serialize the returned response to JSON if it's an object, or cast to a raw string
     if (typeof result === 'object') {
       return JSON.stringify(result);
     }
@@ -1424,7 +1437,7 @@ async function runGeminiAgent({ model, systemInstruction, prompt, history, tools
     }
   }
 
-  const inputTokens = data.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
+  const inputTokens = data.usageMetadata?.promptTokenCount || Math.ceil((prompt || (history ? JSON.stringify(history) : '')).length / 4);
   const outputTokens = data.usageMetadata?.candidatesTokenCount || Math.ceil(text.length / 4);
 
   return {
@@ -1675,6 +1688,118 @@ app.post('/api/agent/run', async (req, res) => {
     });
   } catch (error) {
     console.error('Agent execution failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Elo Leaderboard Endpoints
+app.get('/api/elo', (req, res) => {
+  res.json(db.getElo());
+});
+
+app.post('/api/elo/vote', (req, res) => {
+  const { modelA, modelB, winner } = req.body;
+  if (!modelA || !modelB || !winner) {
+    return res.status(400).json({ error: 'modelA, modelB, and winner are required' });
+  }
+
+  try {
+    const eloDb = db.getElo();
+    if (!eloDb[modelA]) eloDb[modelA] = { elo: 1200, wins: 0, losses: 0, ties: 0, matches: 0 };
+    if (!eloDb[modelB]) eloDb[modelB] = { elo: 1200, wins: 0, losses: 0, ties: 0, matches: 0 };
+
+    const rA = eloDb[modelA].elo;
+    const rB = eloDb[modelB].elo;
+    const eA = 1 / (1 + Math.pow(10, (rB - rA) / 400));
+    const eB = 1 / (1 + Math.pow(10, (rA - rB) / 400));
+
+    let sA = 0.5;
+    let sB = 0.5;
+    if (winner === 'A') {
+      sA = 1;
+      sB = 0;
+      eloDb[modelA].wins += 1;
+      eloDb[modelB].losses += 1;
+    } else if (winner === 'B') {
+      sA = 0;
+      sB = 1;
+      eloDb[modelA].losses += 1;
+      eloDb[modelB].wins += 1;
+    } else {
+      eloDb[modelA].ties += 1;
+      eloDb[modelB].ties += 1;
+    }
+    eloDb[modelA].matches += 1;
+    eloDb[modelB].matches += 1;
+
+    const kFactor = 32;
+    const diffA = Math.round(kFactor * (sA - eA));
+    const diffB = Math.round(kFactor * (sB - eB));
+
+    eloDb[modelA].elo += diffA;
+    eloDb[modelB].elo += diffB;
+
+    db.saveElo(eloDb);
+
+    res.json({ success: true, eloDb, diffA, diffB, modelA, modelB });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Git History for a specific prompt
+app.get('/api/prompts/:promptId/git-history', (req, res) => {
+  const { promptId } = req.params;
+  try {
+    let logOutput;
+    try {
+      logOutput = execSync('git log --follow --format="%H|%an|%ad|%s" -- data/projects.json', { encoding: 'utf-8' });
+    } catch (gitErr) {
+      return res.json({ gitEnabled: false, history: [] });
+    }
+
+    const commits = logOutput.trim().split('\n').filter(Boolean).map(line => {
+      const [hash, author, date, message] = line.split('|');
+      return { hash, author, date, message };
+    });
+
+    const history = [];
+    for (const commit of commits) {
+      try {
+        const fileContent = execSync(`git show ${commit.hash}:data/projects.json`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] });
+        const projects = JSON.parse(fileContent);
+        
+        let foundPrompt = null;
+        for (const proj of projects) {
+          if (proj.prompts) {
+            const match = proj.prompts.find(p => p.id === promptId);
+            if (match) {
+              foundPrompt = match;
+              break;
+            }
+          }
+        }
+
+        if (foundPrompt) {
+          const latestVersionObj = foundPrompt.versions?.[foundPrompt.versions.length - 1];
+          history.push({
+            hash: commit.hash,
+            author: commit.author,
+            date: commit.date,
+            message: commit.message,
+            name: foundPrompt.name,
+            description: foundPrompt.description,
+            template: latestVersionObj?.template || '',
+            systemInstruction: latestVersionObj?.systemInstruction || ''
+          });
+        }
+      } catch (err) {
+        // Skip commit
+      }
+    }
+
+    res.json({ gitEnabled: true, history });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

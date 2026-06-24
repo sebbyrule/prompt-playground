@@ -102,6 +102,13 @@ export const PromptStudio: React.FC = () => {
   const [newFewShotDesc, setNewFewShotDesc] = useState('');
   const [showFewShotForm, setShowFewShotForm] = useState(false);
   const [compareVersion, setCompareVersion] = useState<PromptVersion | null>(null);
+  
+  // Git History states
+  const [gitHistoryTab, setGitHistoryTab] = useState<'local' | 'git'>('local');
+  const [gitHistory, setGitHistory] = useState<any[]>([]);
+  const [gitEnabled, setGitEnabled] = useState(false);
+  const [loadingGit, setLoadingGit] = useState(false);
+  const [compareGitCommit, setCompareGitCommit] = useState<any | null>(null);
   const [snippetLang, setSnippetLang] = useState<'python' | 'js'>('python');
   const [snippetSdk, setSnippetSdk] = useState<'gemini' | 'claude' | 'openai'>('gemini');
 
@@ -162,6 +169,8 @@ export const PromptStudio: React.FC = () => {
     setMaxTokens(latestVersion.parameters.maxTokens);
     setVersionDescription('');
     setCompareVersion(null);
+    setCompareGitCommit(null);
+    setGitHistoryTab('local');
     setDrawerTab('run');
     setIsSaved(true);
     
@@ -184,6 +193,36 @@ export const PromptStudio: React.FC = () => {
     setMaxTokens(ver.parameters.maxTokens);
     setIsSaved(false);
     setDrawerTab('run');
+  };
+
+  const loadGitHistory = async (promptId: string) => {
+    setLoadingGit(true);
+    setCompareGitCommit(null);
+    try {
+      const res = await api.get(`/api/prompts/${promptId}/git-history`);
+      setGitEnabled(res.gitEnabled);
+      setGitHistory(res.history || []);
+    } catch (e) {
+      console.error('Error loading git history:', e);
+      setGitHistory([]);
+      setGitEnabled(false);
+    } finally {
+      setLoadingGit(false);
+    }
+  };
+
+  const applyGitCommit = (commit: any) => {
+    setSystemInstruction(commit.systemInstruction);
+    setTemplate(commit.template);
+    setIsSaved(false);
+    setDrawerTab('run');
+  };
+
+  const handleSelectGitHistoryTab = (tab: 'local' | 'git') => {
+    setGitHistoryTab(tab);
+    if (tab === 'git' && activePrompt) {
+      loadGitHistory(activePrompt.id);
+    }
   };
 
   // Detect variables dynamically from template
@@ -818,6 +857,25 @@ run();`;
                 </div>
               </div>
             )}
+
+            {compareGitCommit && (
+              <div className="compare-view glass-panel">
+                <div className="compare-header">
+                  <h4>Comparing Current Editor with Git Commit: {compareGitCommit.hash.substring(0, 7)}</h4>
+                  <button className="btn-secondary-mini" onClick={() => setCompareGitCommit(null)}>Close Diff</button>
+                </div>
+                <div className="compare-body">
+                  <div className="compare-column">
+                    <h5>Current Editor</h5>
+                    <pre className="compare-pre">{template}</pre>
+                  </div>
+                  <div className="compare-column">
+                    <h5>Commit: "{compareGitCommit.message}"</h5>
+                    <pre className="compare-pre">{compareGitCommit.template}</pre>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -866,23 +924,82 @@ run();`;
           {/* Drawer Body depending on tab */}
           {drawerTab === 'history' && (
             <div className="history-panel fade-in">
-              <div className="drawer-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-tertiary)' }}>
+              <div className="drawer-header" style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <h3 style={{ fontSize: '14px' }}>Version History</h3>
+                
+                <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px' }}>
+                  <button 
+                    onClick={() => handleSelectGitHistoryTab('local')}
+                    style={{ background: 'transparent', border: 'none', color: gitHistoryTab === 'local' ? 'var(--accent-primary)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', borderBottom: gitHistoryTab === 'local' ? '2px solid var(--accent-primary)' : 'none', paddingBottom: '4px' }}
+                  >
+                    Local Saves
+                  </button>
+                  <button 
+                    onClick={() => handleSelectGitHistoryTab('git')}
+                    style={{ background: 'transparent', border: 'none', color: gitHistoryTab === 'git' ? 'var(--accent-primary)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', borderBottom: gitHistoryTab === 'git' ? '2px solid var(--accent-primary)' : 'none', paddingBottom: '4px' }}
+                  >
+                    Git Commits
+                  </button>
+                </div>
               </div>
-              <div className="history-list" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {activePrompt.versions.map((ver, idx) => (
-                  <div key={idx} className="history-version-card glass-panel" style={{ padding: '16px' }}>
-                    <div className="ver-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <span className="ver-number" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-primary)', fontSize: '14px' }}>v{ver.version}</span>
-                      <span className="ver-date" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(ver.createdAt).toLocaleDateString()}</span>
+              
+              <div className="history-list" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
+                {gitHistoryTab === 'local' ? (
+                  activePrompt.versions.map((ver, idx) => (
+                    <div key={idx} className="history-version-card glass-panel" style={{ padding: '16px' }}>
+                      <div className="ver-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span className="ver-number" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-primary)', fontSize: '14px' }}>v{ver.version}</span>
+                        <span className="ver-date" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(ver.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <p className="ver-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: '1.4' }}>{ver.description}</p>
+                      <div className="ver-actions" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn-secondary-mini" onClick={() => applyVersion(ver)}>Restore</button>
+                        <button className="btn-secondary-mini" onClick={() => setCompareVersion(ver)}>Compare Diff</button>
+                      </div>
                     </div>
-                    <p className="ver-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: '1.4' }}>{ver.description}</p>
-                    <div className="ver-actions" style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn-secondary-mini" onClick={() => applyVersion(ver)}>Restore</button>
-                      <button className="btn-secondary-mini" onClick={() => setCompareVersion(ver)}>Compare Diff</button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <>
+                    {!gitEnabled && (
+                      <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        <p>Git history is not available. Ensure this project is initialized as a Git repository and changes to projects.json have been committed.</p>
+                      </div>
+                    )}
+                    {gitEnabled && loadingGit && (
+                      <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                        <div className="loading-spinner" style={{ margin: '0 auto 8px' }}></div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Loading commits...</p>
+                      </div>
+                    )}
+                    {gitEnabled && !loadingGit && gitHistory.length === 0 && (
+                      <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        <p>No commits tracked for this prompt yet. Commit your data/projects.json changes to Git to log history.</p>
+                      </div>
+                    )}
+                    {gitEnabled && !loadingGit && gitHistory.map((commit, idx) => (
+                      <div key={idx} className="history-version-card glass-panel" style={{ padding: '16px' }}>
+                        <div className="ver-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span className="ver-number" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-primary)', fontSize: '12px' }}>
+                            {commit.hash.substring(0, 7)}
+                          </span>
+                          <span className="ver-date" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {new Date(commit.date).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="ver-desc" style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500, marginBottom: '4px' }}>
+                          {commit.message}
+                        </p>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '12px' }}>
+                          Author: {commit.author}
+                        </span>
+                        <div className="ver-actions" style={{ display: 'flex', gap: '8px' }}>
+                          <button className="btn-secondary-mini" onClick={() => applyGitCommit(commit)}>Restore</button>
+                          <button className="btn-secondary-mini" onClick={() => setCompareGitCommit(commit)}>Compare Diff</button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           )}

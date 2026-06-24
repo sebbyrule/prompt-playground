@@ -2,14 +2,14 @@
   {
     "id": "proj_q62pix0rj",
     "name": "test",
-    "description": "",
+    "description": "General system test cases and developer playgrounds.",
     "createdAt": "2026-06-24T17:59:38.772Z",
     "prompts": [
       {
         "id": "prompt_1kgxqb6uj",
         "name": "programmer",
-        "description": "",
-        "tags": [],
+        "description": "Assistant developer helper",
+        "tags": ["code"],
         "createdAt": "2026-06-24T18:00:10.667Z",
         "updatedAt": "2026-06-24T18:27:27.887Z",
         "versions": [
@@ -17,9 +17,7 @@
             "version": 1,
             "systemInstruction": "",
             "template": "Hello {{name}}, welcome to PromptForge!",
-            "variables": [
-              "name"
-            ],
+            "variables": ["name"],
             "parameters": {
               "temperature": 0.7,
               "maxTokens": 1024
@@ -31,15 +29,191 @@
             "version": 2,
             "systemInstruction": "You are a helpful programming assistant",
             "template": "Come up with {{amount}} ideas for a programming portfolio",
-            "variables": [
-              "amount"
-            ],
+            "variables": ["amount"],
             "parameters": {
               "temperature": 0.7,
               "maxTokens": 20000
             },
             "createdAt": "2026-06-24T18:27:27.887Z",
-            "description": "Saved on 2026-06-24"
+            "description": "Portfolio ideas"
+          }
+        ]
+      },
+      {
+        "id": "prompt_shipping_estimator",
+        "name": "shipping_estimator",
+        "description": "Logistics inquiry simulation prompt",
+        "tags": ["logistics"],
+        "createdAt": "2026-06-24T18:48:00.000Z",
+        "updatedAt": "2026-06-24T18:48:00.000Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a logistics support bot.",
+            "template": "Can you check the shipping rate for a package weighing {{weight}} lbs going to {{destination}}?",
+            "variables": ["weight", "destination"],
+            "parameters": {
+              "temperature": 0.5,
+              "maxTokens": 500
+            },
+            "createdAt": "2026-06-24T18:48:00.000Z",
+            "description": "Initial version"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_customer_engagement",
+    "name": "Customer Engagement",
+    "description": "Promotional copywriting, campaigns, and messaging templates.",
+    "createdAt": "2026-06-24T18:48:15.000Z",
+    "prompts": [
+      {
+        "id": "prompt_newsletter",
+        "name": "newsletter_generator",
+        "description": "Marketing product highlight templates",
+        "tags": ["email", "marketing"],
+        "createdAt": "2026-06-24T18:48:20.000Z",
+        "updatedAt": "2026-06-24T18:48:20.000Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a creative eCommerce copywriter. Write a clean, high-impact marketing newsletter.",
+            "template": "Draft a promotional newsletter introducing {{product_name}}! Emphasize the core feature: {{feature}}! Standard rate: {{original_price}}, special promo rate: {{discount_price}}.",
+            "variables": ["product_name", "feature", "original_price", "discount_price"],
+            "parameters": {
+              "temperature": 0.85,
+              "maxTokens": 1024
+            },
+            "createdAt": "2026-06-24T18:48:20.000Z",
+            "description": "Initial draft version"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_sentiment_bot",
+    "name": "Sentiment & Review Analyzer",
+    "description": "Classify client responses and extract specific aspects of product reviews.",
+    "createdAt": "2026-06-24T18:49:00.000Z",
+    "prompts": [
+      {
+        "id": "prompt_sentiment",
+        "name": "sentiment_classifier",
+        "description": "Determine positive or negative customer reviews",
+        "tags": ["analysis", "classification"],
+        "createdAt": "2026-06-24T18:49:05.000Z",
+        "updatedAt": "2026-06-24T18:49:15.000Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a customer review classifier.",
+            "template": "Determine the sentiment of the following product review:\n\nReview: {{review_text}}\n\nSentiment (Positive/Negative/Neutral):",
+            "variables": ["review_text"],
+            "parameters": {
+              "temperature": 0.3,
+              "maxTokens": 50
+            },
+            "createdAt": "2026-06-24T18:49:05.000Z",
+            "description": "Basic prompt classifier"
+          },
+          {
+            "version": 2,
+            "systemInstruction": "You are an advanced sentiment analyzer. Categorize reviews precisely.",
+            "template": "Classify the sentiment and identify key entities in this product review.\n\nReview: {{review_text}}\n\nProvide the response in the following JSON format:\n{\n  \"sentiment\": \"Positive\" | \"Negative\" | \"Neutral\" | \"Mixed\",\n  \"confidence\": 0.0 - 1.0,\n  \"aspects_mentioned\": [\"list\", \"of\", \"features\"],\n  \"summary_sentence\": \"One sentence recap\"\n}",
+            "variables": ["review_text"],
+            "parameters": {
+              "temperature": 0.1,
+              "maxTokens": 256
+            },
+            "createdAt": "2026-06-24T18:49:15.000Z",
+            "description": "JSON output structure, advanced aspects extraction"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_code_reviewer",
+    "name": "AI Code Assistant",
+    "description": "Examine code syntax, safety, and check for optimizations.",
+    "createdAt": "2026-06-24T18:49:20.000Z",
+    "prompts": [
+      {
+        "id": "prompt_code_review",
+        "name": "code_reviewer",
+        "description": "Perform security and performance audits",
+        "tags": ["coding", "review"],
+        "createdAt": "2026-06-24T18:49:25.000Z",
+        "updatedAt": "2026-06-24T18:49:35.000Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a senior software engineer reviewing code.",
+            "template": "Please review the following code snippet written in {{language}}:\n\n```{{language}}\n{{code}}\n```\n\nProvide a summary of potential improvements.",
+            "variables": ["language", "code"],
+            "parameters": {
+              "temperature": 0.5,
+              "maxTokens": 1000
+            },
+            "createdAt": "2026-06-24T18:49:25.000Z",
+            "description": "Initial code reviewer"
+          },
+          {
+            "version": 2,
+            "systemInstruction": "You are a senior software engineer specializing in security and performance optimizations.",
+            "template": "Please perform a security and performance code review on the following code snippet written in {{language}}:\n\n```{{language}}\n{{code}}\n```\n\nFor any issue you find, categorize it as [Security], [Performance], or [Style], and suggest a fix.",
+            "variables": ["language", "code"],
+            "parameters": {
+              "temperature": 0.2,
+              "maxTokens": 1500
+            },
+            "createdAt": "2026-06-24T18:49:35.000Z",
+            "description": "Categorized security and performance review"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_grammar_checker",
+    "name": "Text Improver & Editor",
+    "description": "Refine writing flow, correctness, and adjustments.",
+    "createdAt": "2026-06-24T18:49:40.000Z",
+    "prompts": [
+      {
+        "id": "prompt_text_editor",
+        "name": "text_editor",
+        "description": "Proofread and adjust style target",
+        "tags": ["copywriting", "editing"],
+        "createdAt": "2026-06-24T18:49:45.000Z",
+        "updatedAt": "2026-06-24T18:49:55.000Z",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a copyeditor.",
+            "template": "Fix spelling and grammar errors in this text:\n\n{{input_text}}",
+            "variables": ["input_text"],
+            "parameters": {
+              "temperature": 0.3,
+              "maxTokens": 500
+            },
+            "createdAt": "2026-06-24T18:49:45.000Z",
+            "description": "Simple edit"
+          },
+          {
+            "version": 2,
+            "systemInstruction": "You are a professional book editor and writing coach.",
+            "template": "Revise the following text for grammar, flow, tone, and readability. Explain the major changes you made.\n\nOriginal Text:\n{{input_text}}\n\nTone Target: {{tone}}",
+            "variables": ["input_text", "tone"],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 1000
+            },
+            "createdAt": "2026-06-24T18:49:55.000Z",
+            "description": "Tone adjustments and explanation"
           }
         ]
       }

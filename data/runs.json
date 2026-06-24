@@ -1,5 +1,21 @@
 [
   {
+    "id": "run_9fj54buy8",
+    "timestamp": "2026-06-24T18:53:47.619Z",
+    "projectName": "Text Improver & Editor",
+    "promptName": "text_editor",
+    "model": "lmstudio/local-model",
+    "metrics": {
+      "durationMs": 72156,
+      "tokenUsage": {
+        "inputTokens": 22369,
+        "outputTokens": 2391,
+        "totalTokens": 24760
+      },
+      "costEstimate": 0
+    }
+  },
+  {
     "id": "run_yooz8gnff",
     "timestamp": "2026-06-24T18:31:07.316Z",
     "projectName": "test",
