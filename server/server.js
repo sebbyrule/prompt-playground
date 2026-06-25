@@ -19,6 +19,59 @@ function resolveLocalUrl(url) {
   return url;
 }
 
+function sanitizeJsonString(str) {
+  let inString = false;
+  let isEscaped = false;
+  let result = '';
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    
+    if (inString) {
+      if (isEscaped) {
+        result += char;
+        isEscaped = false;
+      } else if (char === '\\') {
+        result += char;
+        isEscaped = true;
+      } else if (char === '"') {
+        result += char;
+        inString = false;
+      } else if (char === '\n') {
+        result += '\\n';
+      } else if (char === '\r') {
+        result += '\\r';
+      } else if (char === '\t') {
+        result += '\\t';
+      } else {
+        const code = char.charCodeAt(0);
+        if (code < 32) {
+          result += '\\u' + code.toString(16).padStart(4, '0');
+        } else {
+          result += char;
+        }
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+      }
+      result += char;
+    }
+  }
+  return result;
+}
+
+function parseJsonFromLlm(text) {
+  if (typeof text !== 'string') return text;
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+  }
+  const sanitized = sanitizeJsonString(cleaned);
+  return JSON.parse(sanitized);
+}
+
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // support large payloads for vision base64
 
@@ -848,7 +901,7 @@ Failure Cases to Avoid:
 
     const response = await model.generateContent({ contents });
     const text = response.response.text();
-    const result = JSON.parse(text);
+    const result = parseJsonFromLlm(text);
     res.json(result);
   } catch (error) {
     console.error('Optimization failed:', error);
@@ -1005,7 +1058,7 @@ AI Assistant Response to Evaluate:
                 ];
                 
                 const judgeResponse = await judgeModel.generateContent({ contents });
-                const judgeResult = JSON.parse(judgeResponse.response.text());
+                const judgeResult = parseJsonFromLlm(judgeResponse.response.text());
                 
                 assertionPassed = !!judgeResult.passed;
                 details = `Score: ${judgeResult.score}/100. Reasoning: ${judgeResult.reasoning}`;
@@ -2156,11 +2209,7 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
       resultText = runRes.output;
     }
 
-    let cleaned = resultText.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
-    }
-    const json = JSON.parse(cleaned);
+    const json = parseJsonFromLlm(resultText);
     res.json(json);
   } catch (err) {
     console.error('Critique failed:', err);
@@ -2239,11 +2288,7 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
       resultText = runRes.output;
     }
 
-    let cleaned = resultText.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
-    }
-    const json = JSON.parse(cleaned);
+    const json = parseJsonFromLlm(resultText);
     res.json(json);
   } catch (err) {
     console.error('Failed to generate assertions:', err);
