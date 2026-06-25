@@ -1,4 +1,4 @@
-const BACKEND_URL = 'http://localhost:5001';
+const BACKEND_URL = window.location.port === '5173' ? 'http://localhost:5001' : '';
 
 export function getHeaders(): HeadersInit {
   return {

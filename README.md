@@ -126,6 +126,19 @@ It acts as a local prompt IDE and serving gateway, enabling developers to test, 
     *   Input API keys for Gemini, Claude, or OpenAI. For local offline models, configure your running Ollama or LM Studio endpoints.
     *   *Note: Keys are saved securely in your browser's LocalStorage and only passed to the local backend proxy to bypass CORS restrictions.*
 
+### Docker Deployment (Alternative)
+
+For containerized deployment, you can build and run Prompt Playground using Docker and Docker Compose. This packages the entire application (including the static frontend assets and production backend runtime) into a single optimized container.
+
+1.  **Build and Run with Docker Compose**:
+    ```bash
+    docker compose up -d --build
+    ```
+2.  **Access the Application**:
+    *   Open `http://localhost:5050/` in your browser.
+3.  **Data Persistence**:
+    *   The container maps your local `./data` directory directly, so any projects, prompt templates, tools, and custom skill changes are written locally and can be version-controlled with Git on the host machine.
+
 ---
 
 ## 🧪 Mock Data for Testing

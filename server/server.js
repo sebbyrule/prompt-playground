@@ -2679,6 +2679,18 @@ app.get('/api/prompts/:promptId/git-history', (req, res) => {
   }
 });
 
+// Serve static client assets in production
+const distPath = path.join(__dirname, '../dist');
+app.use(express.static(distPath));
+
+// Fallback for single-page app (SPA) routing
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`Prompt Playground server running on http://localhost:${PORT}`);
 });

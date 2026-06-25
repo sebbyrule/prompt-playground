@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: prompt-playground
+    ports:
+      - "5050:5001"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
