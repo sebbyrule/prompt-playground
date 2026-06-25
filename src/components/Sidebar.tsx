@@ -8,7 +8,8 @@ import {
   Sparkles, 
   Settings as SettingsIcon,
   MessageSquareCode,
-  Cpu
+  Cpu,
+  Bot
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     { id: 'evaluator', label: 'Evaluator', icon: CheckSquare },
     { id: 'optimizer', label: 'Auto-Optimizer', icon: Sparkles },
     { id: 'agent-workspace', label: 'Tools & Skills', icon: Cpu },
+    { id: 'copilot', label: 'Prompt Copilot', icon: Bot },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 

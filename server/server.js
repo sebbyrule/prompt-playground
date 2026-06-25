@@ -100,8 +100,24 @@ async function runGemini({ model, systemInstruction, prompt, temperature, maxTok
     outputTokens = Math.ceil(text.length / 4);
   }
 
+  const rawRequest = {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent`,
+    method: 'POST',
+    body: {
+      contents,
+      generationConfig: config,
+      systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
+    }
+  };
+  const rawResponse = {
+    candidates: response.response.candidates || [],
+    usageMetadata: response.response.usageMetadata || {}
+  };
+
   return {
     output: text,
+    rawRequest,
+    rawResponse,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -168,8 +184,21 @@ async function runClaude({ model, systemInstruction, prompt, temperature, maxTok
   const inputTokens = data.usage?.input_tokens || 0;
   const outputTokens = data.usage?.output_tokens || 0;
 
+  const rawRequest = {
+    url: 'https://api.anthropic.com/v1/messages',
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'anthropic-version': '2023-06-01'
+    },
+    body: payload
+  };
+  const rawResponse = data;
+
   return {
     output: text,
+    rawRequest,
+    rawResponse,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -233,8 +262,20 @@ async function runOpenAI({ model, systemInstruction, prompt, temperature, maxTok
   const inputTokens = data.usage?.prompt_tokens || 0;
   const outputTokens = data.usage?.completion_tokens || 0;
 
+  const rawRequest = {
+    url: 'https://api.openai.com/v1/chat/completions',
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: payload
+  };
+  const rawResponse = data;
+
   return {
     output: text,
+    rawRequest,
+    rawResponse,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -290,8 +331,18 @@ async function runOllama({ model, systemInstruction, prompt, temperature, maxTok
   const inputTokens = data.prompt_eval_count || 0;
   const outputTokens = data.eval_count || 0;
 
+  const rawRequest = {
+    url,
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: payload
+  };
+  const rawResponse = data;
+
   return {
     output: text,
+    rawRequest,
+    rawResponse,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -357,8 +408,18 @@ async function runLMStudio({ model, systemInstruction, prompt, temperature, maxT
   const inputTokens = data.usage?.prompt_tokens || 0;
   const outputTokens = data.usage?.completion_tokens || 0;
 
+  const rawRequest = {
+    url,
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: payload
+  };
+  const rawResponse = data;
+
   return {
     output: text,
+    rawRequest,
+    rawResponse,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -536,6 +597,162 @@ app.post('/api/projects/:projectId/prompts/:promptId/versions', (req, res) => {
   
   db.saveProjects(projects);
   res.status(201).json(newVersion);
+});
+
+// Prompt Branches API Endpoints
+
+// Create a branch from a prompt version
+app.post('/api/projects/:projectId/prompts/:promptId/branches', (req, res) => {
+  const { projectId, promptId } = req.params;
+  const { name, baseVersion } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Branch name is required' });
+
+  const projects = db.getProjects();
+  const projectIndex = projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) return res.status(404).json({ error: 'Project not found' });
+
+  const promptIndex = projects[projectIndex].prompts.findIndex(p => p.id === promptId);
+  if (promptIndex === -1) return res.status(404).json({ error: 'Prompt not found' });
+
+  const prompt = projects[projectIndex].prompts[promptIndex];
+  prompt.branches = prompt.branches || [];
+
+  if (prompt.branches.some(b => b.name === name)) {
+    return res.status(400).json({ error: `Branch name '${name}' already exists` });
+  }
+
+  const baseVerNum = Number(baseVersion) || 1;
+  const baseVersionObj = prompt.versions.find(v => v.version === baseVerNum) || prompt.versions[prompt.versions.length - 1];
+
+  const newBranch = {
+    name,
+    baseVersion: baseVersionObj ? baseVersionObj.version : 1,
+    createdAt: new Date().toISOString(),
+    versions: [
+      {
+        version: 1,
+        systemInstruction: baseVersionObj ? baseVersionObj.systemInstruction : '',
+        template: baseVersionObj ? baseVersionObj.template : '',
+        variables: baseVersionObj ? baseVersionObj.variables || [] : [],
+        parameters: baseVersionObj ? baseVersionObj.parameters || { temperature: 0.7, maxTokens: 2048 } : { temperature: 0.7, maxTokens: 2048 },
+        createdAt: new Date().toISOString(),
+        description: `Branched from version ${baseVersionObj ? baseVersionObj.version : 1}`
+      }
+    ]
+  };
+
+  prompt.branches.push(newBranch);
+  prompt.updatedAt = new Date().toISOString();
+
+  db.saveProjects(projects);
+  res.status(201).json(newBranch);
+});
+
+// Save a version on a branch
+app.post('/api/projects/:projectId/prompts/:promptId/branches/:branchName/versions', (req, res) => {
+  const { projectId, promptId, branchName } = req.params;
+  const { systemInstruction, template, parameters, description } = req.body;
+
+  const projects = db.getProjects();
+  const projectIndex = projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) return res.status(404).json({ error: 'Project not found' });
+
+  const promptIndex = projects[projectIndex].prompts.findIndex(p => p.id === promptId);
+  if (promptIndex === -1) return res.status(404).json({ error: 'Prompt not found' });
+
+  const prompt = projects[projectIndex].prompts[promptIndex];
+  prompt.branches = prompt.branches || [];
+
+  const branch = prompt.branches.find(b => b.name === branchName);
+  if (!branch) return res.status(404).json({ error: `Branch '${branchName}' not found` });
+
+  const variables = [];
+  const regex = /{{\s*([a-zA-Z0-9_]+)\s*}}/g;
+  let match;
+  while ((match = regex.exec(template || '')) !== null) {
+    if (!variables.includes(match[1])) {
+      variables.push(match[1]);
+    }
+  }
+
+  const nextVersion = branch.versions.length + 1;
+  const newVersion = {
+    version: nextVersion,
+    systemInstruction: systemInstruction || '',
+    template: template || '',
+    variables,
+    parameters: parameters || { temperature: 0.7, maxTokens: 2048 },
+    createdAt: new Date().toISOString(),
+    description: description || `Branch Version ${nextVersion}`
+  };
+
+  branch.versions.push(newVersion);
+  prompt.updatedAt = new Date().toISOString();
+
+  db.saveProjects(projects);
+  res.status(201).json(newVersion);
+});
+
+// Delete a branch
+app.delete('/api/projects/:projectId/prompts/:promptId/branches/:branchName', (req, res) => {
+  const { projectId, promptId, branchName } = req.params;
+
+  const projects = db.getProjects();
+  const projectIndex = projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) return res.status(404).json({ error: 'Project not found' });
+
+  const promptIndex = projects[projectIndex].prompts.findIndex(p => p.id === promptId);
+  if (promptIndex === -1) return res.status(404).json({ error: 'Prompt not found' });
+
+  const prompt = projects[projectIndex].prompts[promptIndex];
+  prompt.branches = prompt.branches || [];
+
+  prompt.branches = prompt.branches.filter(b => b.name !== branchName);
+  prompt.updatedAt = new Date().toISOString();
+
+  db.saveProjects(projects);
+  res.json({ success: true });
+});
+
+// Merge a branch into main versions
+app.post('/api/projects/:projectId/prompts/:promptId/branches/:branchName/merge', (req, res) => {
+  const { projectId, promptId, branchName } = req.params;
+  const { mergeMessage } = req.body;
+
+  const projects = db.getProjects();
+  const projectIndex = projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) return res.status(404).json({ error: 'Project not found' });
+
+  const promptIndex = projects[projectIndex].prompts.findIndex(p => p.id === promptId);
+  if (promptIndex === -1) return res.status(404).json({ error: 'Prompt not found' });
+
+  const prompt = projects[projectIndex].prompts[promptIndex];
+  prompt.branches = prompt.branches || [];
+
+  const branch = prompt.branches.find(b => b.name === branchName);
+  if (!branch) return res.status(404).json({ error: `Branch '${branchName}' not found` });
+  if (branch.versions.length === 0) return res.status(400).json({ error: `Branch '${branchName}' is empty` });
+
+  const latestBranchVersion = branch.versions[branch.versions.length - 1];
+
+  const nextMainVersion = prompt.versions.length + 1;
+  const mergedVersion = {
+    version: nextMainVersion,
+    systemInstruction: latestBranchVersion.systemInstruction,
+    template: latestBranchVersion.template,
+    variables: latestBranchVersion.variables || [],
+    parameters: latestBranchVersion.parameters || { temperature: 0.7, maxTokens: 2048 },
+    createdAt: new Date().toISOString(),
+    description: mergeMessage || `Merged branch '${branchName}'`
+  };
+
+  prompt.versions.push(mergedVersion);
+  prompt.branches = prompt.branches.filter(b => b.name !== branchName);
+  prompt.updatedAt = new Date().toISOString();
+
+  db.saveProjects(projects);
+  res.status(201).json(mergedVersion);
 });
 
 // Run Prompt Endpoint
@@ -1271,9 +1488,15 @@ async function runOpenAIAgent({ model, systemInstruction, prompt, history, tools
   const outputTokens = data.usage?.completion_tokens || 0;
 
   return {
-    rawMessage: choice,
+    rawMessage: choice || { role: 'assistant', content: '' },
     output: choice?.content || '',
     toolCalls,
+    rawRequest: {
+      url,
+      method: 'POST',
+      body: payload
+    },
+    rawResponse: data,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -1356,6 +1579,12 @@ async function runClaudeAgent({ model, systemInstruction, prompt, history, tools
     rawMessage: { role: 'assistant', content: data.content },
     output: text,
     toolCalls,
+    rawRequest: {
+      url: 'https://api.anthropic.com/v1/messages',
+      method: 'POST',
+      body: payload
+    },
+    rawResponse: data,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -1444,6 +1673,12 @@ async function runGeminiAgent({ model, systemInstruction, prompt, history, tools
     rawMessage: choiceContent || { role: 'model', parts: [] },
     output: text,
     toolCalls,
+    rawRequest: {
+      url,
+      method: 'POST',
+      body: payload
+    },
+    rawResponse: data,
     metrics: {
       durationMs,
       tokenUsage: {
@@ -1559,7 +1794,9 @@ app.post('/api/agent/run', async (req, res) => {
         role: 'model',
         type: runResult.toolCalls ? 'tool_call' : 'text',
         content: runResult.output,
-        toolCalls: runResult.toolCalls
+        toolCalls: runResult.toolCalls,
+        rawRequest: runResult.rawRequest,
+        rawResponse: runResult.rawResponse
       });
 
       currentHistory.push(runResult.rawMessage);
@@ -1589,7 +1826,9 @@ app.post('/api/agent/run', async (req, res) => {
               role: 'tool',
               name: tc.name,
               toolCallId: tc.id,
-              content: mockResponse
+              content: mockResponse,
+              rawRequest: { tool: tc.name, args: tc.args, code: matchedTool?.code },
+              rawResponse: { result: mockResponse }
             });
 
             let parsedResponse;
@@ -1630,7 +1869,9 @@ app.post('/api/agent/run', async (req, res) => {
               role: 'tool',
               name: tc.name,
               toolCallId: tc.id,
-              content: mockResponse
+              content: mockResponse,
+              rawRequest: { tool: tc.name, args: tc.args, code: matchedTool?.code },
+              rawResponse: { result: mockResponse }
             });
 
             return {
@@ -1663,7 +1904,9 @@ app.post('/api/agent/run', async (req, res) => {
               role: 'tool',
               name: tc.name,
               toolCallId: tc.id,
-              content: mockResponse
+              content: mockResponse,
+              rawRequest: { tool: tc.name, args: tc.args, code: matchedTool?.code },
+              rawResponse: { result: mockResponse }
             });
 
             currentHistory.push({
@@ -1688,6 +1931,638 @@ app.post('/api/agent/run', async (req, res) => {
     });
   } catch (error) {
     console.error('Agent execution failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Prompt Forge Copilot Tools & Chat Workspace ─────────────────────────────
+
+async function executeCopilotTool(name, args) {
+  switch (name) {
+    case 'list_projects': {
+      const projects = db.getProjects();
+      return projects.map(p => ({
+        id: p.id,
+        name: p.name,
+        prompts: (p.prompts || []).map(pr => ({
+          id: pr.id,
+          name: pr.name,
+          versionsCount: (pr.versions || []).length,
+          branches: (pr.branches || []).map(b => b.name)
+        }))
+      }));
+    }
+
+    case 'get_prompt': {
+      const projects = db.getProjects();
+      const project = projects.find(p => p.id === args.projectId);
+      if (!project) throw new Error(`Project ${args.projectId} not found.`);
+      const prompt = (project.prompts || []).find(pr => pr.id === args.promptId);
+      if (!prompt) throw new Error(`Prompt ${args.promptId} not found.`);
+      return {
+        id: prompt.id,
+        name: prompt.name,
+        description: prompt.description,
+        versions: prompt.versions,
+        branches: prompt.branches || []
+      };
+    }
+
+    case 'create_project': {
+      const projects = db.getProjects();
+      const newProj = {
+        id: 'proj_' + Date.now(),
+        name: args.name,
+        prompts: []
+      };
+      projects.push(newProj);
+      db.saveProjects(projects);
+      return { success: true, project: newProj };
+    }
+
+    case 'create_prompt': {
+      const projects = db.getProjects();
+      const project = projects.find(p => p.id === args.projectId);
+      if (!project) throw new Error(`Project ${args.projectId} not found.`);
+      
+      const newPrompt = {
+        id: 'prompt_' + Date.now(),
+        name: args.name,
+        description: args.description || '',
+        versions: [],
+        branches: [],
+        fewShotExamples: []
+      };
+      if (!project.prompts) project.prompts = [];
+      project.prompts.push(newPrompt);
+      db.saveProjects(projects);
+      return { success: true, prompt: newPrompt };
+    }
+
+    case 'save_prompt_version': {
+      const projects = db.getProjects();
+      const project = projects.find(p => p.id === args.projectId);
+      if (!project) throw new Error(`Project ${args.projectId} not found.`);
+      const prompt = (project.prompts || []).find(pr => pr.id === args.promptId);
+      if (!prompt) throw new Error(`Prompt ${args.promptId} not found.`);
+
+      const branchName = args.branchName || 'main';
+      const desc = args.description || `Saved via Copilot on ${new Date().toLocaleDateString()}`;
+      const parameters = {
+        temperature: args.temperature !== undefined ? args.temperature : 0.7,
+        maxTokens: args.maxTokens !== undefined ? args.maxTokens : 2048
+      };
+
+      // Detect variables in template
+      const matches = args.template.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g) || [];
+      const variables = Array.from(new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '').trim())));
+
+      const newVersion = {
+        version: 1, // Will be computed
+        systemInstruction: args.systemInstruction,
+        template: args.template,
+        variables,
+        parameters,
+        createdAt: new Date().toISOString(),
+        description: desc
+      };
+
+      if (branchName === 'main') {
+        newVersion.version = prompt.versions.length + 1;
+        prompt.versions.push(newVersion);
+      } else {
+        if (!prompt.branches) prompt.branches = [];
+        let branch = prompt.branches.find(b => b.name === branchName);
+        if (!branch) {
+          branch = {
+            name: branchName,
+            baseVersion: prompt.versions.length,
+            createdAt: new Date().toISOString(),
+            versions: []
+          };
+          prompt.branches.push(branch);
+        }
+        newVersion.version = branch.versions.length + 1;
+        branch.versions.push(newVersion);
+      }
+
+      db.saveProjects(projects);
+      return { success: true, version: newVersion.version, branch: branchName };
+    }
+
+    case 'list_tools': {
+      return db.getTools();
+    }
+
+    case 'create_tool': {
+      const tools = db.getTools();
+      const existingIdx = tools.findIndex(t => t.name === args.name);
+      const newTool = {
+        id: existingIdx !== -1 ? tools[existingIdx].id : 'tool_' + Date.now(),
+        name: args.name,
+        description: args.description,
+        parameters: args.parameters || { type: 'object', properties: {} },
+        code: args.code || '',
+        mockResponse: args.mockResponse || '{}'
+      };
+
+      if (existingIdx !== -1) {
+        tools[existingIdx] = newTool;
+      } else {
+        tools.push(newTool);
+      }
+
+      db.saveTools(tools);
+      return { success: true, toolId: newTool.id };
+    }
+
+    default:
+      throw new Error(`Tool ${name} not found`);
+  }
+}
+app.post('/api/copilot/critique', async (req, res) => {
+  const { systemInstruction, template, model } = req.body;
+  const modelName = model || 'gemini-1.5-flash';
+  
+  const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
+  const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
+  const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
+  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+
+  const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
+  const apiKey = modelName.startsWith('gemini') ? geminiKey 
+               : modelName.startsWith('claude') ? claudeKey 
+               : (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) ? openaiKey
+               : '';
+
+  if (!isLocal && !apiKey) {
+    return res.status(400).json({ error: 'Missing API Key in settings for the selected model.' });
+  }
+
+  const critiquePrompt = `Analyze the following system instructions and prompt template. Provide a detailed critique and an optimized version.
+
+SYSTEM INSTRUCTIONS:
+"""
+${systemInstruction || '(None)'}
+"""
+
+PROMPT TEMPLATE:
+"""
+${template || '(None)'}
+"""
+
+You MUST respond with a valid JSON object matching this schema:
+{
+  "score": number (0-100),
+  "critique": {
+    "clarity": "text description and score",
+    "constraints": "text description and score",
+    "formatting": "text description and score"
+  },
+  "suggestions": [
+    "suggestion 1",
+    "suggestion 2",
+    "suggestion 3"
+  ],
+  "optimizedSystemInstruction": "optimized system instructions text",
+  "optimizedTemplate": "optimized prompt template text"
+}
+Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
+
+  try {
+    let resultText = '';
+    if (modelName.startsWith('gemini')) {
+      const runRes = await runGemini({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('claude')) {
+      const runRes = await runClaude({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+      const runRes = await runOpenAI({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('ollama/')) {
+      const runRes = await runOllama({ model: modelName, prompt: critiquePrompt, temperature: 0.1, ollamaUrl });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('lmstudio/')) {
+      const runRes = await runLMStudio({ model: modelName, prompt: critiquePrompt, temperature: 0.1, lmStudioUrl });
+      resultText = runRes.output;
+    }
+
+    let cleaned = resultText.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+    }
+    const json = JSON.parse(cleaned);
+    res.json(json);
+  } catch (err) {
+    console.error('Critique failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/copilot/generate-assertions', async (req, res) => {
+  const { systemInstruction, template, model } = req.body;
+  const modelName = model || 'gemini-1.5-flash';
+  
+  const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
+  const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
+  const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
+  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+
+  const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
+  const apiKey = modelName.startsWith('gemini') ? geminiKey 
+               : modelName.startsWith('claude') ? claudeKey 
+               : (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) ? openaiKey
+               : '';
+
+  if (!isLocal && !apiKey) {
+    return res.status(400).json({ error: 'Missing API Key in settings for the selected model.' });
+  }
+
+  const assertionsPrompt = `Inspect the following system instructions and prompt template. Propose a set of test cases with test assertions that verify the model output behaves correctly according to the prompt's instructions.
+You should return exactly 3 logical test cases. Each test case must have a name, variable input values, and 2-3 assertions.
+Assertions can be of type: "contains" (must contain a substring), "not_contains" (must not contain a substring), or "llm_judge" (rubric to verify output quality/tone using another LLM).
+
+SYSTEM INSTRUCTIONS:
+"""
+${systemInstruction || '(None)'}
+"""
+
+PROMPT TEMPLATE:
+"""
+${template || '(None)'}
+"""
+
+You MUST respond with a valid JSON object matching this schema:
+{
+  "testCases": [
+    {
+      "name": "Test Case Name (e.g. friendly tone test)",
+      "variables": {
+        "varName1": "test value 1",
+        "varName2": "test value 2"
+      },
+      "assertions": [
+        { "type": "contains", "value": "substring to look for" },
+        { "type": "llm_judge", "value": "The output must sound encouraging and polite." }
+      ]
+    }
+  ]
+}
+Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
+
+  try {
+    let resultText = '';
+    if (modelName.startsWith('gemini')) {
+      const runRes = await runGemini({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('claude')) {
+      const runRes = await runClaude({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+      const runRes = await runOpenAI({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('ollama/')) {
+      const runRes = await runOllama({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, ollamaUrl });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('lmstudio/')) {
+      const runRes = await runLMStudio({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, lmStudioUrl });
+      resultText = runRes.output;
+    }
+
+    let cleaned = resultText.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+    }
+    const json = JSON.parse(cleaned);
+    res.json(json);
+  } catch (err) {
+    console.error('Failed to generate assertions:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/local-models', async (req, res) => {
+  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
+  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+
+  const models = [];
+
+  // 1. Fetch from Ollama
+  try {
+    const ollamaResponse = await fetch(`${ollamaUrl}/api/tags`, {
+      signal: AbortSignal.timeout(2000)
+    });
+    if (ollamaResponse.ok) {
+      const data = await ollamaResponse.json();
+      if (data.models && Array.isArray(data.models)) {
+        for (const m of data.models) {
+          models.push({
+            value: `ollama/${m.name}`,
+            label: `Ollama: ${m.name}`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.log('Ollama local models fetch failed (probably offline)');
+  }
+
+  // 2. Fetch from LM Studio
+  try {
+    const lmResponse = await fetch(`${lmStudioUrl}/v1/models`, {
+      signal: AbortSignal.timeout(2000)
+    });
+    if (lmResponse.ok) {
+      const data = await lmResponse.json();
+      if (data.data && Array.isArray(data.data)) {
+        for (const m of data.data) {
+          models.push({
+            value: `lmstudio/${m.id}`,
+            label: `LM Studio: ${m.id}`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.log('LM Studio local models fetch failed (probably offline)');
+  }
+
+  res.json({ models });
+});
+
+app.post('/api/copilot/chat', async (req, res) => {
+  const { model, history, message } = req.body;
+  const modelName = model || 'gemini-1.5-flash';
+  
+  const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
+  const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
+  const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
+  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+
+  const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
+  const apiKey = modelName.startsWith('gemini') ? geminiKey 
+               : modelName.startsWith('claude') ? claudeKey 
+               : (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) ? openaiKey
+               : '';
+
+  if (!isLocal && !apiKey) {
+    return res.status(400).json({ error: 'Missing API Key in settings for the selected model.' });
+  }
+
+  // System instructions for the Prompt Engineering assistant
+  const systemInstruction = `You are PromptForge Copilot, a senior prompt engineering assistant. Your job is to help the user manage their projects, prompts, versions, branches, and custom agent tools. You have tools available to list projects, get prompt details, save new prompt versions (or branch versions), list custom playground tools, and create/update playground tools. Always use these tools proactively when asked to show, update, delete, or create prompts, projects, or tools. Be friendly, structured, concise, and helpful.`;
+
+  // Copilot Tools list
+  const copilotTools = [
+    {
+      name: "list_projects",
+      description: "List all projects and prompt templates in the Prompt Playground",
+      parameters: { type: "object", properties: {} }
+    },
+    {
+      name: "get_prompt",
+      description: "Get detailed system instructions, template, parameters, and branches of a specific prompt",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          promptId: { type: "string" }
+        },
+        required: ["projectId", "promptId"]
+      }
+    },
+    {
+      name: "create_project",
+      description: "Create a new project in the playground database.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The name of the new project" }
+        },
+        required: ["name"]
+      }
+    },
+    {
+      name: "create_prompt",
+      description: "Create a new prompt template under a project.",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "The target project ID" },
+          name: { type: "string", description: "The name of the prompt (e.g. review-analyzer)" },
+          description: { type: "string", description: "Brief description of the prompt task" }
+        },
+        required: ["projectId", "name"]
+      }
+    },
+    {
+      name: "save_prompt_version",
+      description: "Save a new version of a prompt template (supporting main or custom branch versions).",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          promptId: { type: "string" },
+          systemInstruction: { type: "string" },
+          template: { type: "string" },
+          temperature: { type: "number" },
+          maxTokens: { type: "number" },
+          description: { type: "string" },
+          branchName: { type: "string" }
+        },
+        required: ["projectId", "promptId", "systemInstruction", "template"]
+      }
+    },
+    {
+      name: "list_tools",
+      description: "List all custom agent execution tools (Mock/JS sandbox tools) registered in the database.",
+      parameters: { type: "object", properties: {} }
+    },
+    {
+      name: "create_tool",
+      description: "Create or update a custom playground tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Unique name of the tool (lowercase, underscores)" },
+          description: { type: "string", description: "Tool utility description" },
+          parameters: { type: "object", description: "JSON schema defining parameters" },
+          code: { type: "string", description: "Executable JavaScript code" },
+          mockResponse: { type: "string", description: "JSON string containing mock response data" }
+        },
+        required: ["name", "description"]
+      }
+    }
+  ];
+
+  let currentHistory = history ? JSON.parse(JSON.stringify(history)) : [];
+  if (currentHistory.length === 0 && message) {
+    if (modelName.startsWith('gemini')) {
+      currentHistory.push({ role: 'user', parts: [{ text: message }] });
+    } else {
+      currentHistory.push({ role: 'user', content: message });
+    }
+  }
+
+  const trace = [];
+
+  try {
+    let loopCount = 0;
+    const maxLoops = 15;
+    let lastResult = null;
+
+    while (loopCount < maxLoops) {
+      loopCount++;
+      let runResult = null;
+
+      if (modelName.startsWith('gemini')) {
+        runResult = await runGeminiAgent({
+          model: modelName,
+          systemInstruction,
+          history: currentHistory,
+          tools: copilotTools,
+          apiKey
+        });
+      } else if (modelName.startsWith('claude')) {
+        runResult = await runClaudeAgent({
+          model: modelName,
+          systemInstruction,
+          history: currentHistory,
+          tools: copilotTools,
+          apiKey
+        });
+      } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+        runResult = await runOpenAIAgent({
+          model: modelName,
+          systemInstruction,
+          history: currentHistory,
+          tools: copilotTools,
+          apiKey
+        });
+      } else if (modelName.startsWith('ollama/')) {
+        runResult = await runOpenAIAgent({
+          model: modelName,
+          systemInstruction,
+          history: currentHistory,
+          tools: copilotTools,
+          baseUrl: `${ollamaUrl}/v1`
+        });
+      } else if (modelName.startsWith('lmstudio/')) {
+        runResult = await runOpenAIAgent({
+          model: modelName,
+          systemInstruction,
+          history: currentHistory,
+          tools: copilotTools,
+          baseUrl: `${lmStudioUrl}/v1`
+        });
+      } else {
+        throw new Error(`Unsupported model for copilot execution: ${modelName}`);
+      }
+
+      currentHistory.push(runResult.rawMessage);
+      lastResult = runResult;
+
+      if (runResult.toolCalls && runResult.toolCalls.length > 0) {
+        if (modelName.startsWith('gemini')) {
+          const parts = await Promise.all(runResult.toolCalls.map(async (tc) => {
+            let toolOutput;
+            let success = true;
+            try {
+              toolOutput = await executeCopilotTool(tc.name, tc.args);
+            } catch (err) {
+              toolOutput = { error: err.message };
+              success = false;
+            }
+
+            trace.push({
+              role: 'tool',
+              name: tc.name,
+              toolCallId: tc.id,
+              status: success ? 'success' : 'error',
+              args: tc.args,
+              result: toolOutput
+            });
+
+            return {
+              functionResponse: {
+                name: tc.name,
+                response: { name: tc.name, content: toolOutput }
+              }
+            };
+          }));
+          currentHistory.push({ role: 'user', parts });
+        } else if (modelName.startsWith('claude')) {
+          const content = await Promise.all(runResult.toolCalls.map(async (tc) => {
+            let toolOutput;
+            let success = true;
+            try {
+              toolOutput = await executeCopilotTool(tc.name, tc.args);
+            } catch (err) {
+              toolOutput = { error: err.message };
+              success = false;
+            }
+
+            trace.push({
+              role: 'tool',
+              name: tc.name,
+              toolCallId: tc.id,
+              status: success ? 'success' : 'error',
+              args: tc.args,
+              result: toolOutput
+            });
+
+            return {
+              type: 'tool_result',
+              tool_use_id: tc.id,
+              content: JSON.stringify(toolOutput)
+            };
+          }));
+          currentHistory.push({ role: 'user', content });
+        } else {
+          for (const tc of runResult.toolCalls) {
+            let toolOutput;
+            let success = true;
+            try {
+              toolOutput = await executeCopilotTool(tc.name, tc.args);
+            } catch (err) {
+              toolOutput = { error: err.message };
+              success = false;
+            }
+
+            trace.push({
+              role: 'tool',
+              name: tc.name,
+              toolCallId: tc.id,
+              status: success ? 'success' : 'error',
+              args: tc.args,
+              result: toolOutput
+            });
+
+            currentHistory.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              name: tc.name,
+              content: JSON.stringify(toolOutput)
+            });
+          }
+        }
+      } else {
+        break;
+      }
+    }
+
+    res.json({
+      success: true,
+      trace,
+      history: currentHistory,
+      finalOutput: lastResult?.output || ''
+    });
+  } catch (error) {
+    console.error('Copilot agent run error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -47,6 +47,18 @@ It acts as a local prompt IDE and serving gateway, enabling developers to test, 
     `POST /api/serve/:promptId`
     Accepts variables and model overrides, executes runs, logs usage, and returns results.
 
+### 7. Prompt Copilot & Multi-Session Chat Explorer
+*   **Prompt Expert Bot**: A dedicated chat assistant to help write, optimize, and manage prompt templates.
+*   **Autocomplete panel**: Query templates, projects, and custom tools with slash commands (`/clear`, `/projects`, `/tools`) and reference mentions (`@template_name`).
+*   **Apply to Editor**: Instantly extract generated code snippets from Copilot responses and load them into active studio files.
+*   **Multi-Session History**: Explorer sidebar lets developers create, view, switch, and delete historical chats, with persistent local storage.
+*   **Auto-Titling**: Automatically titles conversations based on the user's first input text.
+*   **Local Model Autodetect**: Automatically discovers Ollama and LM Studio models running locally.
+
+### 8. Collapsible Sandbox Folders
+*   **Group Custom Tools**: Organize sandbox scripts into group categories (e.g. `Database`, `APIs`) in the tool editor.
+*   **Sidebar Collapsibles**: Custom tools lists and Skills attachment checklists display custom tools grouped in collapsible, clean folders to eliminate lists fatigue.
+
 ---
 
 ## 🛠️ Technology Stack

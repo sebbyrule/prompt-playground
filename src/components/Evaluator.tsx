@@ -10,7 +10,8 @@ import {
   XCircle, 
   PlusCircle, 
   Save, 
-  AlertTriangle 
+  AlertTriangle,
+  Sparkles
 } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -64,6 +65,7 @@ export const Evaluator: React.FC = () => {
   const [runResults, setRunResults] = useState<any | null>(null);
   const [running, setRunning] = useState(false);
   const [savingSuite, setSavingSuite] = useState(false);
+  const [generatingAssertions, setGeneratingAssertions] = useState(false);
   const [outputViewMode, setOutputViewMode] = useState<'raw' | 'preview'>('raw');
 
   const models = [
@@ -152,6 +154,67 @@ export const Evaluator: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleGenerateAssertionsAI = async () => {
+    if (!selectedPromptId || !currentPrompt) return;
+
+    // Get currently selected version object
+    const currentVersionObj = currentPrompt.versions.find(v => v.version === selectedVersion)
+                           || currentPrompt.versions[currentPrompt.versions.length - 1];
+
+    if (!currentVersionObj) {
+      alert('Could not find active prompt version instructions.');
+      return;
+    }
+
+    setGeneratingAssertions(true);
+    try {
+      const res = await api.post('/api/copilot/generate-assertions', {
+        systemInstruction: currentVersionObj.systemInstruction,
+        template: currentVersionObj.template,
+        model: selectedModel
+      });
+
+      if (res && Array.isArray(res.testCases)) {
+        const newTestCases: TestCase[] = res.testCases.map((tc: any, index: number) => ({
+          id: 'tc_' + Math.random().toString(36).substr(2, 9) + '_' + index,
+          name: tc.name || `Generated Case ${index + 1}`,
+          variables: tc.variables || {},
+          assertions: (tc.assertions || []).map((ast: any) => ({
+            type: ast.type || 'contains',
+            value: ast.value || ''
+          }))
+        }));
+
+        if (newTestCases.length > 0) {
+          const isDefaultSuite = testCases.length === 1 && 
+                                 testCases[0].assertions.length === 1 && 
+                                 testCases[0].assertions[0].value === '' && 
+                                 Object.keys(testCases[0].variables).length === 0;
+
+          if (isDefaultSuite) {
+            setTestCaseStates(newTestCases);
+          } else {
+            if (window.confirm('Would you like to overwrite the current test suite with the AI generated assertions? Click Cancel to append instead.')) {
+              setTestCaseStates(newTestCases);
+            } else {
+              setTestCaseStates([...testCases, ...newTestCases]);
+            }
+          }
+          setRunResults(null); // Clear previous runs
+        } else {
+          alert('No test cases were generated.');
+        }
+      } else {
+        alert('Invalid response format from assertion generator.');
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Failed to generate assertions: ${e.message}`);
+    } finally {
+      setGeneratingAssertions(false);
     }
   };
 
@@ -585,6 +648,15 @@ export const Evaluator: React.FC = () => {
                 onChange={handleImportFileChange}
                 style={{ display: 'none' }}
               />
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleGenerateAssertionsAI}
+                disabled={generatingAssertions || !selectedPromptId}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Sparkles size={16} className={generatingAssertions ? 'spin' : ''} />
+                {generatingAssertions ? 'Generating...' : 'Generate Assertions (AI)'}
+              </button>
               <button className="btn btn-secondary" onClick={addTestCase}>
                 <PlusCircle size={16} />
                 Add Test Case

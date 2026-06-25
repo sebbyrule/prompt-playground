@@ -15,7 +15,10 @@
           "description": "Weight of the parcel in pounds"
         }
       },
-      "required": ["destination", "weight"]
+      "required": [
+        "destination",
+        "weight"
+      ]
     },
     "mockResponse": "{\n  \"status\": \"success\",\n  \"rate\": 8.99,\n  \"estimated_days\": 3\n}",
     "executionMode": "javascript",
@@ -34,7 +37,9 @@
           "description": "Stock ticker symbol (e.g. GOOG, AAPL, MSFT)"
         }
       },
-      "required": ["symbol"]
+      "required": [
+        "symbol"
+      ]
     },
     "mockResponse": "{\n  \"symbol\": \"GOOG\",\n  \"price\": 182.50,\n  \"change\": 1.25\n}",
     "executionMode": "javascript",
@@ -54,11 +59,16 @@
         },
         "unit": {
           "type": "string",
-          "enum": ["celsius", "fahrenheit"],
+          "enum": [
+            "celsius",
+            "fahrenheit"
+          ],
           "description": "Temperature unit preferred"
         }
       },
-      "required": ["city"]
+      "required": [
+        "city"
+      ]
     },
     "mockResponse": "{\n  \"city\": \"New York\",\n  \"temperature\": 22,\n  \"unit\": \"celsius\",\n  \"condition\": \"Partly Cloudy\",\n  \"humidity\": 60\n}",
     "executionMode": "javascript",
@@ -112,7 +122,11 @@
           "description": "Target currency (e.g. USD, EUR, GBP, JPY)"
         }
       },
-      "required": ["amount", "from", "to"]
+      "required": [
+        "amount",
+        "from",
+        "to"
+      ]
     },
     "mockResponse": "{\n  \"from\": \"USD\",\n  \"to\": \"EUR\",\n  \"amount\": 100,\n  \"convertedAmount\": 92.50,\n  \"rate\": 0.925\n}",
     "executionMode": "javascript",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './PromptStudio.css';
 import api from '../utils/api';
 import {
@@ -15,7 +15,14 @@ import {
   Layers,
   Copy,
   PlusCircle,
-  HelpCircle
+  HelpCircle,
+  GitBranch,
+  GitMerge,
+  X,
+  Code2,
+  SendHorizontal,
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -42,6 +49,25 @@ interface FewShotExample {
   createdAt: string;
 }
 
+// Branch version stored within a branch object
+interface BranchVersion {
+  version: number;
+  systemInstruction: string;
+  template: string;
+  variables: string[];
+  parameters: ParameterSet;
+  createdAt: string;
+  description: string;
+}
+
+// Branch object attached to a prompt for experimental prompt development
+interface Branch {
+  name: string;
+  baseVersion: number;
+  createdAt: string;
+  versions: BranchVersion[];
+}
+
 interface Prompt {
   id: string;
   name: string;
@@ -51,6 +77,19 @@ interface Prompt {
   updatedAt: string;
   versions: PromptVersion[];
   fewShotExamples?: FewShotExample[];
+  branches?: Branch[];
+}
+
+interface GraphNode {
+  id: string;
+  version: number;
+  branchName: string;
+  description: string;
+  createdAt: string;
+  track: number;
+  isBranchStart?: boolean;
+  baseVersion?: number;
+  rawObject: any;
 }
 
 interface Project {
@@ -91,6 +130,13 @@ export const PromptStudio: React.FC = () => {
   const [runMetrics, setRunMetrics] = useState<any>(null);
   const [runError, setRunError] = useState('');
 
+  // Chat Simulator States
+  const [chatSimMode, setChatSimMode] = useState(false);
+  const [chatHistory, setChatHistory] = useState<{role: string; content: string}[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatThreadRef = useRef<HTMLDivElement>(null);
+
   // Right drawer states
   const [drawerTab, setDrawerTab] = useState<'run' | 'history' | 'few-shot' | 'code'>('run');
   const [outputViewMode, setOutputViewMode] = useState<'raw' | 'preview'>('raw');
@@ -112,12 +158,33 @@ export const PromptStudio: React.FC = () => {
   const [snippetLang, setSnippetLang] = useState<'python' | 'js'>('python');
   const [snippetSdk, setSnippetSdk] = useState<'gemini' | 'claude' | 'openai'>('gemini');
 
+  // Branch States
+  const [activeBranch, setActiveBranch] = useState<string>('main');
+  const [showBranchModal, setShowBranchModal] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState('');
+
+  // Payload Inspector States
+  const [rawPayload, setRawPayload] = useState<{ rawRequest: any; rawResponse: any } | null>(null);
+  const [payloadTab, setPayloadTab] = useState<'request' | 'response'>('request');
+  const [showPayloadModal, setShowPayloadModal] = useState(false);
+  const [payloadCopied, setPayloadCopied] = useState(false);
+
+  // Critique States
+  const [showCritiquePanel, setShowCritiquePanel] = useState(false);
+  const [critiqueData, setCritiqueData] = useState<any>(null);
+  const [critiqueLoading, setCritiqueLoading] = useState(false);
+  const [critiqueError, setCritiqueError] = useState('');
+
   // General States
   const [isSaved, setIsSaved] = useState(true);
   const [loading, setLoading] = useState(true);
 
   // Predefined models list
-  const models = [
+  const [localModels, setLocalModels] = useState<{ value: string; label: string }[]>([]);
+
+  const baseModels = [
     { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
     { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -125,16 +192,96 @@ export const PromptStudio: React.FC = () => {
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
     { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'ollama/llama3', label: 'Ollama: Llama 3' },
-    { value: 'ollama/mistral', label: 'Ollama: Mistral' },
-    { value: 'ollama/phi3', label: 'Ollama: Phi 3' },
-    { value: 'lmstudio/local-model', label: 'LM Studio: Local Model' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' }
   ];
+
+  const models = localModels.length > 0 
+    ? [...baseModels, ...localModels]
+    : [
+        ...baseModels,
+        { value: 'ollama/llama3', label: 'Ollama: Llama 3' },
+        { value: 'ollama/mistral', label: 'Ollama: Mistral' },
+        { value: 'ollama/phi3', label: 'Ollama: Phi 3' },
+        { value: 'lmstudio/local-model', label: 'LM Studio: Local Model' }
+      ];
+
+  const buildVersionGraph = (prompt: Prompt) => {
+    const nodes: GraphNode[] = [];
+    const tracks: string[] = ['main'];
+
+    // Add main versions
+    (prompt.versions || []).forEach(v => {
+      nodes.push({
+        id: `main-${v.version}`,
+        version: v.version,
+        branchName: 'main',
+        description: v.description,
+        createdAt: v.createdAt,
+        track: 0,
+        rawObject: v
+      });
+    });
+
+    // Add branch versions
+    (prompt.branches || []).forEach((branch) => {
+      const trackIdx = tracks.length;
+      tracks.push(branch.name);
+
+      branch.versions.forEach((bv, vIdx) => {
+        nodes.push({
+          id: `${branch.name}-${bv.version}`,
+          version: bv.version,
+          branchName: branch.name,
+          description: bv.description,
+          createdAt: bv.createdAt,
+          track: trackIdx,
+          isBranchStart: vIdx === 0,
+          baseVersion: branch.baseVersion,
+          rawObject: bv
+        });
+      });
+    });
+
+    // Sort nodes descending (latest first)
+    nodes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return { nodes, tracks };
+  };
 
   useEffect(() => {
     loadProjects();
+    fetchLocalModels();
   }, []);
+
+  useEffect(() => {
+    const applied = localStorage.getItem('copilot_applied_prompt');
+    if (applied) {
+      try {
+        const data = JSON.parse(applied);
+        if (data.systemInstruction !== undefined) {
+          setSystemInstruction(data.systemInstruction);
+        }
+        if (data.template !== undefined) {
+          setTemplate(data.template);
+        }
+        setIsSaved(false);
+        localStorage.removeItem('copilot_applied_prompt');
+      } catch (e) {
+        console.error('Failed to apply Copilot prompt to studio:', e);
+      }
+    }
+  }, [activePrompt]);
+
+  async function fetchLocalModels() {
+    try {
+      const res = await api.get('/api/local-models');
+      if (res.models && Array.isArray(res.models)) {
+        setLocalModels(res.models);
+      }
+    } catch (err) {
+      console.error('Failed to load local models in PromptStudio:', err);
+    }
+  }
 
   async function loadProjects() {
     try {
@@ -173,6 +320,16 @@ export const PromptStudio: React.FC = () => {
     setGitHistoryTab('local');
     setDrawerTab('run');
     setIsSaved(true);
+    
+    // Reset branch states
+    setActiveBranch('main');
+    setShowBranchModal(false);
+    setShowMergeModal(false);
+    
+    // Reset chat simulator
+    setChatSimMode(false);
+    setChatHistory([]);
+    setChatInput('');
     
     // Set up test runner variables
     const vars: { [key: string]: string } = {};
@@ -313,6 +470,57 @@ export const PromptStudio: React.FC = () => {
     }
   };
 
+  const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Are you sure you want to delete this project? All prompts inside it will be permanently deleted.')) return;
+    try {
+      await api.delete(`/api/projects/${projectId}`);
+      const updatedProjects = projects.filter(p => p.id !== projectId);
+      setProjects(updatedProjects);
+      
+      if (activeProject?.id === projectId) {
+        setActiveProject(null);
+        setActivePrompt(null);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRunCritique = async () => {
+    if (!activePrompt) return;
+    setCritiqueLoading(true);
+    setCritiqueError('');
+    setCritiqueData(null);
+    try {
+      const res = await api.post('/api/copilot/critique', {
+        systemInstruction,
+        template,
+        model: selectedModel
+      });
+      setCritiqueData(res);
+    } catch (err: any) {
+      console.error(err);
+      setCritiqueError(err.message || 'Failed to generate prompt critique.');
+    } finally {
+      setCritiqueLoading(false);
+    }
+  };
+
+  const applyCritiqueOptimizations = () => {
+    if (!critiqueData) return;
+    if (!window.confirm('Apply AI optimizations? This will overwrite your current System Instructions and Prompt Template.')) return;
+    
+    if (critiqueData.optimizedSystemInstruction !== undefined) {
+      setSystemInstruction(critiqueData.optimizedSystemInstruction);
+    }
+    if (critiqueData.optimizedTemplate !== undefined) {
+      setTemplate(critiqueData.optimizedTemplate);
+    }
+    setIsSaved(false);
+    setShowCritiquePanel(false);
+  };
+
   const handleSavePromptVersion = async () => {
     if (!activeProject || !activePrompt) return;
 
@@ -422,6 +630,151 @@ export const PromptStudio: React.FC = () => {
     }
   };
 
+  // ─── Branch Management Functions ──────────────────────────────────────────
+
+  /** Create a new branch from the current editor version */
+  const handleCreateBranch = async () => {
+    if (!activeProject || !activePrompt || !newBranchName.trim()) return;
+    try {
+      const currentVersion = activePrompt.versions.length;
+      const branch = await api.post(
+        `/api/projects/${activeProject.id}/prompts/${activePrompt.id}/branches`,
+        { name: newBranchName.trim(), baseVersion: currentVersion }
+      );
+      // Update local state with new branch
+      const updatedPrompt = {
+        ...activePrompt,
+        branches: [...(activePrompt.branches || []), branch]
+      };
+      const updatedProjects = projects.map(p => {
+        if (p.id === activeProject.id) {
+          return { ...p, prompts: p.prompts.map(pr => pr.id === activePrompt.id ? updatedPrompt : pr) };
+        }
+        return p;
+      });
+      setProjects(updatedProjects);
+      setActivePrompt(updatedPrompt);
+      setActiveBranch(newBranchName.trim());
+      setNewBranchName('');
+      setShowBranchModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create branch.');
+    }
+  };
+
+  /** Switch the editor content to a different branch (or back to main) */
+  const handleSwitchBranch = (branchName: string) => {
+    if (!activePrompt) return;
+    setActiveBranch(branchName);
+
+    if (branchName === 'main') {
+      // Load latest main version
+      const latest = activePrompt.versions[activePrompt.versions.length - 1];
+      setSystemInstruction(latest.systemInstruction);
+      setTemplate(latest.template);
+      setTemperature(latest.parameters.temperature);
+      setMaxTokens(latest.parameters.maxTokens);
+    } else {
+      // Load latest branch version
+      const branch = (activePrompt.branches || []).find(b => b.name === branchName);
+      if (branch && branch.versions.length > 0) {
+        const latest = branch.versions[branch.versions.length - 1];
+        setSystemInstruction(latest.systemInstruction);
+        setTemplate(latest.template);
+        setTemperature(latest.parameters.temperature);
+        setMaxTokens(latest.parameters.maxTokens);
+      }
+    }
+    setIsSaved(true);
+  };
+
+  /** Save a new version on the active branch */
+  const handleSaveBranchVersion = async () => {
+    if (!activeProject || !activePrompt || activeBranch === 'main') return;
+    try {
+      const desc = versionDescription.trim() || `Branch update on ${new Date().toLocaleDateString()}`;
+      const newVer = await api.post(
+        `/api/projects/${activeProject.id}/prompts/${activePrompt.id}/branches/${activeBranch}/versions`,
+        { systemInstruction, template, parameters: { temperature, maxTokens }, description: desc }
+      );
+      // Update local state
+      const updatedBranches = (activePrompt.branches || []).map(b => {
+        if (b.name === activeBranch) {
+          return { ...b, versions: [...b.versions, newVer] };
+        }
+        return b;
+      });
+      const updatedPrompt = { ...activePrompt, branches: updatedBranches };
+      const updatedProjects = projects.map(p => {
+        if (p.id === activeProject.id) {
+          return { ...p, prompts: p.prompts.map(pr => pr.id === activePrompt.id ? updatedPrompt : pr) };
+        }
+        return p;
+      });
+      setProjects(updatedProjects);
+      setActivePrompt(updatedPrompt);
+      setVersionDescription('');
+      setIsSaved(true);
+      alert('Branch version saved!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save branch version.');
+    }
+  };
+
+  /** Merge the active branch into main and delete it */
+  const handleMergeBranch = async () => {
+    if (!activeProject || !activePrompt || activeBranch === 'main') return;
+    try {
+      const msg = mergeMessage.trim() || `Merged branch ${activeBranch}`;
+      await api.post(
+        `/api/projects/${activeProject.id}/prompts/${activePrompt.id}/branches/${activeBranch}/merge`,
+        { mergeMessage: msg }
+      );
+      // Refresh projects to get updated versions and removed branch
+      await loadProjects();
+      setActiveBranch('main');
+      setMergeMessage('');
+      setShowMergeModal(false);
+      alert(`Branch "${activeBranch}" merged successfully!`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to merge branch.');
+    }
+  };
+
+  /** Delete the active branch */
+  const handleDeleteBranch = async () => {
+    if (!activeProject || !activePrompt || activeBranch === 'main') return;
+    if (!window.confirm(`Delete branch "${activeBranch}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(
+        `/api/projects/${activeProject.id}/prompts/${activePrompt.id}/branches/${activeBranch}`
+      );
+      const updatedPrompt = {
+        ...activePrompt,
+        branches: (activePrompt.branches || []).filter(b => b.name !== activeBranch)
+      };
+      const updatedProjects = projects.map(p => {
+        if (p.id === activeProject.id) {
+          return { ...p, prompts: p.prompts.map(pr => pr.id === activePrompt.id ? updatedPrompt : pr) };
+        }
+        return p;
+      });
+      setProjects(updatedProjects);
+      setActivePrompt(updatedPrompt);
+      setActiveBranch('main');
+      // Reload main version
+      const latest = updatedPrompt.versions[updatedPrompt.versions.length - 1];
+      setSystemInstruction(latest.systemInstruction);
+      setTemplate(latest.template);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete branch.');
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -449,6 +802,7 @@ export const PromptStudio: React.FC = () => {
     setRunOutput('');
     setRunMetrics(null);
     setRunError('');
+    setRawPayload(null);
 
     try {
       // Resolve prompt template
@@ -478,6 +832,7 @@ export const PromptStudio: React.FC = () => {
 
       setRunOutput(res.output);
       setRunMetrics(res.metrics);
+      setRawPayload({ rawRequest: res.rawRequest, rawResponse: res.rawResponse });
 
       // Save to global runs database
       await api.post('/api/runs', {
@@ -493,6 +848,89 @@ export const PromptStudio: React.FC = () => {
     } finally {
       setRunning(false);
     }
+  };
+
+  // Auto-scroll chat thread when new messages arrive
+  useEffect(() => {
+    if (chatThreadRef.current) {
+      chatThreadRef.current.scrollTop = chatThreadRef.current.scrollHeight;
+    }
+  }, [chatHistory, chatLoading]);
+
+  const buildSystemWithFewShots = () => {
+    let systemWithFewShots = systemInstruction;
+    if (fewShotsEnabled && activePrompt?.fewShotExamples && activePrompt.fewShotExamples.length > 0) {
+      const examplesText = activePrompt.fewShotExamples.map((ex, i) => 
+        `Example ${i + 1}:\nInput: ${ex.input}\nOutput: ${ex.output}`
+      ).join('\n\n');
+      systemWithFewShots += `\n\nUse the following few-shot examples for context:\n${examplesText}`;
+    }
+    return systemWithFewShots;
+  };
+
+  const handleStartChat = async () => {
+    if (!template) return;
+
+    // Resolve prompt template (same logic as handleRunTest)
+    let resolvedPrompt = template;
+    for (const [key, val] of Object.entries(runnerVariables)) {
+      const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
+      resolvedPrompt = resolvedPrompt.replace(regex, val);
+    }
+
+    const userMsg = { role: 'user', content: resolvedPrompt };
+    setChatHistory([userMsg]);
+    setChatLoading(true);
+
+    try {
+      const res = await api.post('/api/agent/run', {
+        model: selectedModel,
+        systemInstruction: buildSystemWithFewShots(),
+        prompt: resolvedPrompt,
+        history: [],
+        tools: [],
+        autoExecuteMocks: false
+      });
+
+      setChatHistory(prev => [...prev, { role: 'assistant', content: res.finalOutput }]);
+    } catch (e: any) {
+      setChatHistory(prev => [...prev, { role: 'assistant', content: `⚠️ Error: ${e.message || 'Request failed'}` }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+
+    const userMsg = { role: 'user', content: msg };
+    const updatedHistory = [...chatHistory, userMsg];
+    setChatHistory(updatedHistory);
+    setChatInput('');
+    setChatLoading(true);
+
+    try {
+      const res = await api.post('/api/agent/run', {
+        model: selectedModel,
+        systemInstruction: buildSystemWithFewShots(),
+        prompt: msg,
+        history: chatHistory,
+        tools: [],
+        autoExecuteMocks: false
+      });
+
+      setChatHistory(prev => [...prev, { role: 'assistant', content: res.finalOutput }]);
+    } catch (e: any) {
+      setChatHistory(prev => [...prev, { role: 'assistant', content: `⚠️ Error: ${e.message || 'Request failed'}` }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleClearChat = () => {
+    setChatHistory([]);
+    setChatInput('');
   };
 
   const getCodeSnippet = (lang: 'python' | 'js', sdk: 'gemini' | 'claude' | 'openai') => {
@@ -696,15 +1134,32 @@ run();`;
         <div className="browser-tree">
           {projects.map(project => (
             <div key={project.id} className="project-node">
-              <div className={`project-node-header ${activeProject?.id === project.id ? 'active' : ''}`}>
+              <div 
+                className={`project-node-header ${activeProject?.id === project.id ? 'active' : ''}`}
+                onClick={() => setActiveProject(project)}
+              >
                 <Folder size={16} className="folder-icon" />
                 <span>{project.name}</span>
-                <button className="node-add-btn" onClick={() => {
-                  setActiveProject(project);
-                  setShowNewPromptInput(true);
-                }}>
-                  <FilePlus size={13} />
-                </button>
+                <div className="node-actions" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    className="node-add-btn" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveProject(project);
+                      setShowNewPromptInput(true);
+                    }}
+                    title="Add Prompt"
+                  >
+                    <FilePlus size={13} />
+                  </button>
+                  <button 
+                    className="node-project-delete-btn" 
+                    onClick={(e) => handleDeleteProject(project.id, e)}
+                    title="Delete Project"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
 
               <div className="prompt-children">
@@ -758,25 +1213,98 @@ run();`;
             </div>
             
             <div className="editor-top-actions">
+              {/* Branch Selector Dropdown */}
+              <div className="branch-selector-container" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-color)', padding: '2px 8px', borderRadius: '8px' }}>
+                <GitBranch size={14} style={{ color: activeBranch === 'main' ? 'var(--text-muted)' : 'var(--accent-primary)' }} />
+                <select
+                  className="branch-select-dropdown"
+                  value={activeBranch}
+                  onChange={(e) => handleSwitchBranch(e.target.value)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'white',
+                    padding: '4px 20px 4px 4px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    outline: 'none',
+                    fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  <option value="main" style={{ background: '#1e1e24' }}>main</option>
+                  {(activePrompt.branches || []).map((b) => (
+                    <option key={b.name} value={b.name} style={{ background: '#1e1e24' }}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  className="btn-icon-mini"
+                  onClick={() => setShowBranchModal(true)}
+                  title="Create new branch"
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                >
+                  <PlusCircle size={14} />
+                </button>
+
+                {activeBranch !== 'main' && (
+                  <>
+                    <button
+                      className="btn-icon-mini"
+                      onClick={() => setShowMergeModal(true)}
+                      title="Merge branch into main"
+                      style={{ background: 'transparent', border: 'none', color: 'var(--success)', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                    >
+                      <GitMerge size={14} />
+                    </button>
+                    <button
+                      className="btn-icon-mini"
+                      onClick={handleDeleteBranch}
+                      title="Delete branch"
+                      style={{ background: 'transparent', border: 'none', color: 'var(--error)', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <button 
+                className={`btn ${showCritiquePanel ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => {
+                  setShowCritiquePanel(!showCritiquePanel);
+                  if (!showCritiquePanel && !critiqueData) {
+                    setTimeout(handleRunCritique, 100);
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Sparkles size={16} />
+                AI Critique & Optimize
+              </button>
+
               <button 
                 className="btn btn-secondary" 
                 onClick={() => setDrawerTab(drawerTab === 'history' ? 'run' : 'history')}
                 style={{ borderColor: drawerTab === 'history' ? 'var(--accent-primary)' : 'var(--border-color)', color: drawerTab === 'history' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
               >
                 <History size={16} />
-                History (v{activePrompt.versions.length})
+                History (v{activeBranch === 'main' ? activePrompt.versions.length : ((activePrompt.branches || []).find(b => b.name === activeBranch)?.versions.length || 0)})
               </button>
               <button 
                 className="btn btn-primary"
-                onClick={() => handleSavePromptVersion()}
+                onClick={() => activeBranch === 'main' ? handleSavePromptVersion() : handleSaveBranchVersion()}
               >
                 <Save size={16} />
-                Save Version
+                Save Version {activeBranch !== 'main' && `(${activeBranch})`}
               </button>
             </div>
           </div>
 
-          <div className="editor-scrollable">
+          <div className="editor-content-split" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <div className="editor-scrollable" style={{ flex: 1, overflowY: 'auto' }}>
             <div className="editor-grid">
               {/* System Instruction */}
               <div className="editor-card glass-panel">
@@ -877,7 +1405,111 @@ run();`;
               </div>
             )}
           </div>
+
+          {showCritiquePanel && (
+            <div className="critique-panel">
+              <div className="critique-header">
+                <h3>
+                  <Sparkles size={16} className="sparkle-icon" style={{ color: 'var(--accent-primary)' }} />
+                  AI Critique & Suggestions
+                </h3>
+                <button className="critique-close-btn" onClick={() => setShowCritiquePanel(false)}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="critique-body">
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleRunCritique} 
+                  disabled={critiqueLoading}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {critiqueLoading ? 'Critiquing...' : 'Run Prompt Critique'}
+                </button>
+
+                {critiqueError && (
+                  <div className="critique-error-box">
+                    {critiqueError}
+                  </div>
+                )}
+
+                {critiqueLoading && (
+                  <div className="critique-loading-box">
+                    <div className="critique-loading-spinner"></div>
+                    <p>Analyzing prompt structure, clarity, and constraints...</p>
+                  </div>
+                )}
+
+                {!critiqueLoading && !critiqueData && !critiqueError && (
+                  <div className="critique-empty-box">
+                    Click the button above to run an AI-powered critique of your prompt system instructions and template.
+                  </div>
+                )}
+
+                {critiqueData && (
+                  <div className="critique-results fade-in">
+                    {/* Score circle */}
+                    <div className="critique-score-card">
+                      <div className="critique-score-ring">
+                        {critiqueData.score}
+                      </div>
+                      <div className="critique-score-info">
+                        <h4>Prompt Score</h4>
+                        <p>Based on instructions structure</p>
+                      </div>
+                    </div>
+
+                    {/* Critiques */}
+                    <div>
+                      <h4 className="critique-section-title">Analysis</h4>
+                      
+                      <div className="critique-analysis-list">
+                        <div className="critique-analysis-item">
+                          <span className="critique-analysis-label">🔍 Clarity</span>
+                          <span className="critique-analysis-desc">{critiqueData.critique?.clarity}</span>
+                        </div>
+                        <div className="critique-analysis-item">
+                          <span className="critique-analysis-label">🛡️ Constraints</span>
+                          <span className="critique-analysis-desc">{critiqueData.critique?.constraints}</span>
+                        </div>
+                        <div className="critique-analysis-item">
+                          <span className="critique-analysis-label">📝 Formatting</span>
+                          <span className="critique-analysis-desc">{critiqueData.critique?.formatting}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Suggestions list */}
+                    {critiqueData.suggestions && critiqueData.suggestions.length > 0 && (
+                      <div>
+                        <h4 className="critique-section-title">Recommendations</h4>
+                        <ul className="critique-suggestions-list">
+                          {critiqueData.suggestions.map((s: string, idx: number) => (
+                            <li key={idx}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Apply button */}
+                    <div className="critique-apply-section">
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={applyCritiqueOptimizations}
+                        style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))' }}
+                      >
+                        <Sparkles size={14} />
+                        Apply AI Optimizations
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      </div>
       ) : (
         <div className="editor-empty">
           <Layers size={48} className="empty-icon" />
@@ -944,21 +1576,120 @@ run();`;
               </div>
               
               <div className="history-list" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
-                {gitHistoryTab === 'local' ? (
-                  activePrompt.versions.map((ver, idx) => (
-                    <div key={idx} className="history-version-card glass-panel" style={{ padding: '16px' }}>
-                      <div className="ver-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span className="ver-number" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-primary)', fontSize: '14px' }}>v{ver.version}</span>
-                        <span className="ver-date" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(ver.createdAt).toLocaleDateString()}</span>
+                {gitHistoryTab === 'local' ? (() => {
+                  const { nodes, tracks } = buildVersionGraph(activePrompt);
+                  const trackColors = [
+                    'var(--accent-primary)',
+                    'var(--accent-secondary)',
+                    '#06b6d4',
+                    '#10b981',
+                    '#f59e0b'
+                  ];
+
+                  if (nodes.length === 0) {
+                    return (
+                      <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        No versions saved yet.
                       </div>
-                      <p className="ver-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: '1.4' }}>{ver.description}</p>
-                      <div className="ver-actions" style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn-secondary-mini" onClick={() => applyVersion(ver)}>Restore</button>
-                        <button className="btn-secondary-mini" onClick={() => setCompareVersion(ver)}>Compare Diff</button>
+                    );
+                  }
+
+                  return nodes.map((node, idx) => {
+                    return (
+                      <div key={node.id} className="history-graph-row" style={{ display: 'flex', gap: '12px', alignItems: 'stretch' }}>
+                        {/* Graph track SVG visualizer */}
+                        <div className="history-graph-track" style={{ width: '40px', position: 'relative', flexShrink: 0 }}>
+                          <svg style={{ width: '100%', height: '100%', minHeight: '80px', overflow: 'visible' }}>
+                            {/* 1. Draw track lines */}
+                            {tracks.map((_track, t) => {
+                              // Track 0 (main) always runs fully
+                              if (t === 0) {
+                                return (
+                                  <line 
+                                    key={t}
+                                    x1={10} 
+                                    y1={0} 
+                                    x2={10} 
+                                    y2="100%" 
+                                    stroke={trackColors[0]} 
+                                    strokeWidth={2}
+                                    strokeOpacity={0.4}
+                                  />
+                                );
+                              }
+                              // Branch track is only active for rows up to its start
+                              const bStartIdx = nodes.findIndex(n => n.track === t && n.isBranchStart);
+                              if (bStartIdx !== -1 && idx <= bStartIdx) {
+                                const isStartNode = idx === bStartIdx;
+                                return (
+                                  <g key={t}>
+                                    {/* Draw vertical line down to 50% for start node, or fully for active rows above */}
+                                    <line 
+                                      x1={t * 12 + 10} 
+                                      y1={0} 
+                                      x2={t * 12 + 10} 
+                                      y2={isStartNode ? "50%" : "100%"} 
+                                      stroke={trackColors[t % trackColors.length]} 
+                                      strokeWidth={2}
+                                      strokeOpacity={0.4}
+                                    />
+                                    {/* For start node, draw diagonal connecting line from main line below to branch start */}
+                                    {isStartNode && (
+                                      <path 
+                                        d={`M 10,80 Q ${t * 6 + 10},60 ${t * 12 + 10},40`}
+                                        fill="none"
+                                        stroke={trackColors[t % trackColors.length]}
+                                        strokeWidth={2}
+                                        strokeOpacity={0.6}
+                                      />
+                                    )}
+                                  </g>
+                                );
+                              }
+                              return null;
+                            })}
+
+                            {/* 2. Draw circle dot for current node commit */}
+                            <circle 
+                              cx={node.track * 12 + 10} 
+                              cy={40} 
+                              r={6} 
+                              fill={trackColors[node.track % trackColors.length]} 
+                              stroke="#1e1e24"
+                              strokeWidth={2}
+                            />
+                          </svg>
+                        </div>
+
+                        {/* Version info card */}
+                        <div className={`history-version-card glass-panel ${activeBranch === node.branchName ? 'active-branch-card' : ''}`} style={{ padding: '16px', flex: 1, position: 'relative' }}>
+                          <div className="ver-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                            <div>
+                              <span className="ver-number" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: trackColors[node.track % trackColors.length], fontSize: '14px' }}>v{node.version}</span>
+                              <span className="ver-branch-badge" style={{ 
+                                marginLeft: '8px', 
+                                fontSize: '10px', 
+                                padding: '1px 6px', 
+                                borderRadius: '4px', 
+                                background: node.track === 0 ? 'rgba(99, 102, 241, 0.1)' : 'rgba(236, 72, 153, 0.1)',
+                                color: trackColors[node.track % trackColors.length],
+                                border: `1px solid ${trackColors[node.track % trackColors.length]}33`
+                              }}>
+                                {node.branchName}
+                              </span>
+                            </div>
+                            <span className="ver-date" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(node.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <p className="ver-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: '1.4' }}>{node.description}</p>
+                          <div className="ver-actions" style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn-secondary-mini" onClick={() => applyVersion(node.rawObject)}>Restore</button>
+                            <button className="btn-secondary-mini" onClick={() => setCompareVersion(node.rawObject)}>Compare Diff</button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
-                ) : (
+                    );
+                  });
+                })() : (
                   <>
                     {!gitEnabled && (
                       <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
@@ -1104,70 +1835,185 @@ run();`;
                   </div>
                 )}
 
-                {/* Run Trigger */}
-                <button 
-                  className="btn btn-primary run-button" 
-                  disabled={running}
-                  onClick={handleRunTest}
-                >
-                  <Play size={16} />
-                  {running ? 'Running Model...' : 'Execute Run'}
-                </button>
+                {/* Chat Simulator Toggle */}
+                <div className="chat-sim-toggle">
+                  <div className="chat-sim-toggle-label">
+                    <span>💬</span>
+                    <span>Chat Simulator Mode</span>
+                  </div>
+                  <label className="chat-sim-switch">
+                    <input
+                      type="checkbox"
+                      checked={chatSimMode}
+                      onChange={(e) => setChatSimMode(e.target.checked)}
+                    />
+                    <span className="chat-sim-slider"></span>
+                  </label>
+                </div>
 
-                {/* Output */}
-                <div className="run-results-area">
-                  {runError && (
-                    <div className="run-error glass-panel">
-                      <AlertCircle size={16} />
-                      <span>{runError}</span>
-                    </div>
-                  )}
+                {!chatSimMode && (
+                  <>
+                    {/* Run Trigger */}
+                    <button 
+                      className="btn btn-primary run-button" 
+                      disabled={running}
+                      onClick={handleRunTest}
+                    >
+                      <Play size={16} />
+                      {running ? 'Running Model...' : 'Execute Run'}
+                    </button>
 
-                  {runMetrics && (
-                    <div className="run-metrics" style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Latency: <b>{runMetrics.durationMs}ms</b></span>
-                        <span>Tokens: <b>{runMetrics.tokenUsage?.totalTokens}</b></span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Token Split: {runMetrics.tokenUsage?.inputTokens}i / {runMetrics.tokenUsage?.outputTokens}o</span>
-                        {runMetrics.costEstimate !== undefined && (
-                          <span style={{ color: 'var(--success)', fontWeight: 600 }}>Cost: ${runMetrics.costEstimate.toFixed(5)}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {runOutput && (
-                    <div className="run-output glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
-                        <h5 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Response:</h5>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <button 
-                            className="btn-secondary-mini"
-                            onClick={() => setOutputViewMode('raw')}
-                            style={{ padding: '2px 6px', fontSize: '10px', background: outputViewMode === 'raw' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.03)', color: 'white', border: 'none', cursor: 'pointer' }}
-                          >
-                            Raw
-                          </button>
-                          <button 
-                            className="btn-secondary-mini"
-                            onClick={() => setOutputViewMode('preview')}
-                            style={{ padding: '2px 6px', fontSize: '10px', background: outputViewMode === 'preview' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.03)', color: 'white', border: 'none', cursor: 'pointer' }}
-                          >
-                            Preview
-                          </button>
+                    {/* Output */}
+                    <div className="run-results-area">
+                      {runError && (
+                        <div className="run-error glass-panel">
+                          <AlertCircle size={16} />
+                          <span>{runError}</span>
                         </div>
-                      </div>
-                      
-                      {outputViewMode === 'raw' ? (
-                        <pre className="output-pre" style={{ fontFamily: 'var(--font-sans)', fontSize: '13px', lineHeight: '1.5', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>{runOutput}</pre>
-                      ) : (
-                        <MarkdownRenderer content={runOutput} />
+                      )}
+
+                      {runMetrics && (
+                        <div className="run-metrics" style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Latency: <b>{runMetrics.durationMs}ms</b></span>
+                            <span>Tokens: <b>{runMetrics.tokenUsage?.totalTokens}</b></span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Token Split: {runMetrics.tokenUsage?.inputTokens}i / {runMetrics.tokenUsage?.outputTokens}o</span>
+                            {runMetrics.costEstimate !== undefined && (
+                              <span style={{ color: 'var(--success)', fontWeight: 600 }}>Cost: ${runMetrics.costEstimate.toFixed(5)}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {runOutput && (
+                        <div className="run-output glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                            <h5 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Response:</h5>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {rawPayload && (
+                                <button
+                                  className="btn-secondary-mini"
+                                  onClick={() => {
+                                    setPayloadTab('request');
+                                    setPayloadCopied(false);
+                                    setShowPayloadModal(true);
+                                  }}
+                                  style={{ padding: '2px 6px', fontSize: '10px', background: 'rgba(99, 102, 241, 0.1)', borderColor: 'rgba(99, 102, 241, 0.3)', color: 'var(--accent-primary)', border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '4px' }}
+                                >
+                                  <Code2 size={10} /> Inspect
+                                </button>
+                              )}
+                              <button 
+                                className="btn-secondary-mini"
+                                onClick={() => setOutputViewMode('raw')}
+                                style={{ padding: '2px 6px', fontSize: '10px', background: outputViewMode === 'raw' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.03)', color: 'white', border: 'none', cursor: 'pointer' }}
+                              >
+                                Raw
+                              </button>
+                              <button 
+                                className="btn-secondary-mini"
+                                onClick={() => setOutputViewMode('preview')}
+                                style={{ padding: '2px 6px', fontSize: '10px', background: outputViewMode === 'preview' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.03)', color: 'white', border: 'none', cursor: 'pointer' }}
+                              >
+                                Preview
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {outputViewMode === 'raw' ? (
+                            <pre className="output-pre" style={{ fontFamily: 'var(--font-sans)', fontSize: '13px', lineHeight: '1.5', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>{runOutput}</pre>
+                          ) : (
+                            <MarkdownRenderer content={runOutput} />
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
+
+                {chatSimMode && (
+                  <div className="chat-sim-container">
+                    {chatHistory.length === 0 ? (
+                      <div className="chat-sim-empty">
+                        <div className="chat-sim-empty-icon">💬</div>
+                        <p>Your compiled template will be sent as the first message to start a multi-turn conversation.</p>
+                        <button
+                          className="btn btn-primary chat-sim-start"
+                          onClick={handleStartChat}
+                          disabled={chatLoading}
+                        >
+                          <Play size={16} />
+                          {chatLoading ? 'Starting...' : 'Start Chat'}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="chat-sim-thread" ref={chatThreadRef}>
+                          {chatHistory.map((msg, idx) => (
+                            <div key={idx} className={`chat-msg ${msg.role}`}>
+                              <div className="chat-msg-role">
+                                {msg.role === 'user' ? 'You' : 'Assistant'}
+                              </div>
+                              <div className="chat-msg-content">
+                                {msg.role === 'assistant' ? (
+                                  <MarkdownRenderer content={msg.content} />
+                                ) : (
+                                  <span>{msg.content}</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {chatLoading && (
+                            <div className="chat-msg assistant">
+                              <div className="chat-msg-role">Assistant</div>
+                              <div className="chat-msg-content">
+                                <div className="chat-typing-indicator">
+                                  <span></span>
+                                  <span></span>
+                                  <span></span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="chat-sim-input-bar">
+                          <input
+                            type="text"
+                            className="chat-sim-input"
+                            placeholder="Type a follow-up message..."
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendChatMessage();
+                              }
+                            }}
+                            disabled={chatLoading}
+                          />
+                          <button
+                            className="chat-sim-send-btn"
+                            onClick={handleSendChatMessage}
+                            disabled={chatLoading || !chatInput.trim()}
+                            title="Send message"
+                          >
+                            <SendHorizontal size={16} />
+                          </button>
+                          <button
+                            className="chat-sim-clear-btn"
+                            onClick={handleClearChat}
+                            title="Clear chat"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1307,6 +2153,157 @@ run();`;
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Branch Modals & Payload Inspector Modal */}
+      {showBranchModal && (
+        <div className="branch-modal-backdrop" onClick={() => setShowBranchModal(false)}>
+          <div className="branch-modal glass-panel-glow" onClick={(e) => e.stopPropagation()}>
+            <div className="branch-modal-header">
+              <h3>Create Branch</h3>
+              <button className="branch-modal-close" onClick={() => setShowBranchModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="branch-modal-body">
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                Create a new development branch from the current version.
+              </p>
+              <input
+                type="text"
+                placeholder="Branch name (e.g. experiment/greeting)..."
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border-color)',
+                  color: 'white',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  outline: 'none',
+                  marginBottom: '16px'
+                }}
+              />
+            </div>
+            <div className="branch-modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowBranchModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleCreateBranch} disabled={!newBranchName.trim()}>
+                Create Branch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMergeModal && (
+        <div className="branch-modal-backdrop" onClick={() => setShowMergeModal(false)}>
+          <div className="branch-modal glass-panel-glow" onClick={(e) => e.stopPropagation()}>
+            <div className="branch-modal-header">
+              <h3>Merge Branch</h3>
+              <button className="branch-modal-close" onClick={() => setShowMergeModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="branch-modal-body">
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                Merge branch <b>{activeBranch}</b> back into <b>main</b>.
+              </p>
+              <input
+                type="text"
+                placeholder="Merge commit message..."
+                value={mergeMessage}
+                onChange={(e) => setMergeMessage(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border-color)',
+                  color: 'white',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  outline: 'none',
+                  marginBottom: '16px'
+                }}
+              />
+            </div>
+            <div className="branch-modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowMergeModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleMergeBranch}>
+                Merge & Delete Branch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPayloadModal && rawPayload && (
+        <div
+          className="payload-inspector-backdrop"
+          onClick={() => setShowPayloadModal(false)}
+        >
+          <div
+            className="payload-inspector-modal glass-panel-glow"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="payload-inspector-header">
+              <div className="payload-inspector-title">
+                <Code2 size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span>API Payload Inspector</span>
+              </div>
+              <button
+                className="payload-inspector-close"
+                onClick={() => setShowPayloadModal(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="payload-inspector-tabs">
+              <button
+                className={`payload-tab-btn ${payloadTab === 'request' ? 'active' : ''}`}
+                onClick={() => { setPayloadTab('request'); setPayloadCopied(false); }}
+              >
+                Request
+              </button>
+              <button
+                className={`payload-tab-btn ${payloadTab === 'response' ? 'active' : ''}`}
+                onClick={() => { setPayloadTab('response'); setPayloadCopied(false); }}
+              >
+                Response
+              </button>
+            </div>
+
+            <div className="payload-inspector-body">
+              <pre className="payload-json-block">
+                {JSON.stringify(
+                  payloadTab === 'request'
+                    ? rawPayload.rawRequest ?? { note: 'No raw request data available.' }
+                    : rawPayload.rawResponse ?? { note: 'No raw response data available.' },
+                  null,
+                  2
+                )}
+              </pre>
+            </div>
+
+            <div className="payload-inspector-footer">
+              <button
+                className="payload-copy-btn"
+                onClick={() => {
+                  const data = payloadTab === 'request'
+                    ? rawPayload.rawRequest
+                    : rawPayload.rawResponse;
+                  navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+                  setPayloadCopied(true);
+                  setTimeout(() => setPayloadCopied(false), 2000);
+                }}
+              >
+                {payloadCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy JSON</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

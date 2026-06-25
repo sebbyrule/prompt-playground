@@ -908,3 +908,360 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ─── Bubble Actions Row (rewind + inspect side by side) ─── */
+.bubble-actions-row {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-actions-row .rewind-btn {
+  position: static;
+}
+
+/* ─── Inspect Payload Button ─── */
+.inspect-payload-btn {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 4px;
+  color: var(--text-muted);
+  padding: 2px 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.inspect-payload-btn:hover {
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--accent-primary);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.12);
+}
+
+.trace-inspect-btn {
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+/* Make sure toggle-indicator doesn't get pushed by auto margin when inspect btn is present */
+.trace-collapsible-header .trace-inspect-btn + .toggle-indicator {
+  margin-left: 0;
+}
+
+/* ─── Payload Inspector Backdrop ─── */
+.payload-inspector-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: payloadFadeIn 0.2s ease-out;
+}
+
+@keyframes payloadFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ─── Payload Inspector Modal ─── */
+.payload-inspector-modal {
+  width: 620px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow:
+    0 0 40px rgba(99, 102, 241, 0.08),
+    0 24px 48px rgba(0, 0, 0, 0.45);
+  animation: payloadSlideIn 0.25s ease-out;
+  overflow: hidden;
+}
+
+@keyframes payloadSlideIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Header */
+.payload-inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.payload-inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+}
+
+.payload-inspector-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--accent-primary);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.payload-inspector-close {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-muted);
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.payload-inspector-close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: var(--error);
+}
+
+/* Tabs */
+.payload-inspector-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 10px 20px 0;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.payload-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.payload-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.payload-tab-btn.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+/* Body (scrollable JSON area) */
+.payload-inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  min-height: 0;
+}
+
+.payload-json-block {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.65;
+  color: #c5c8d4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.payload-json-block::-webkit-scrollbar {
+  width: 5px;
+}
+
+.payload-json-block::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.payload-json-block::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+}
+
+/* Footer */
+.payload-inspector-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.payload-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.payload-copy-btn:hover {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.1);
+}
+
+/* Sidebar Folder Groups & Collapsible Categories */
+.sidebar-folder-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 6px;
+}
+
+.sidebar-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-folder-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.folder-arrow {
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.2s ease;
+}
+
+.folder-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.folder-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-grow: 1;
+}
+
+.sidebar-folder-header:hover .folder-title {
+  color: var(--text-primary);
+}
+
+.sidebar-folder-contents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+  margin-top: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  padding-bottom: 4px;
+  animation: slideDownFade 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Skills Configurator Folder Grouping */
+.skill-tools-folder-group {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.skill-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.skill-folder-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.skill-folder-contents {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  animation: slideDownFade 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* General divider for sidebar tools list */
+.sidebar-section-divider {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 4px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

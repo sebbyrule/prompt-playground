@@ -9,7 +9,9 @@
         "id": "prompt_1kgxqb6uj",
         "name": "programmer",
         "description": "Assistant developer helper",
-        "tags": ["code"],
+        "tags": [
+          "code"
+        ],
         "createdAt": "2026-06-24T18:00:10.667Z",
         "updatedAt": "2026-06-24T18:27:27.887Z",
         "versions": [
@@ -17,7 +19,9 @@
             "version": 1,
             "systemInstruction": "",
             "template": "Hello {{name}}, welcome to PromptForge!",
-            "variables": ["name"],
+            "variables": [
+              "name"
+            ],
             "parameters": {
               "temperature": 0.7,
               "maxTokens": 1024
@@ -29,7 +33,9 @@
             "version": 2,
             "systemInstruction": "You are a helpful programming assistant",
             "template": "Come up with {{amount}} ideas for a programming portfolio",
-            "variables": ["amount"],
+            "variables": [
+              "amount"
+            ],
             "parameters": {
               "temperature": 0.7,
               "maxTokens": 20000
@@ -43,7 +49,9 @@
         "id": "prompt_shipping_estimator",
         "name": "shipping_estimator",
         "description": "Logistics inquiry simulation prompt",
-        "tags": ["logistics"],
+        "tags": [
+          "logistics"
+        ],
         "createdAt": "2026-06-24T18:48:00.000Z",
         "updatedAt": "2026-06-24T18:48:00.000Z",
         "versions": [
@@ -51,7 +59,10 @@
             "version": 1,
             "systemInstruction": "You are a logistics support bot.",
             "template": "Can you check the shipping rate for a package weighing {{weight}} lbs going to {{destination}}?",
-            "variables": ["weight", "destination"],
+            "variables": [
+              "weight",
+              "destination"
+            ],
             "parameters": {
               "temperature": 0.5,
               "maxTokens": 500
@@ -73,7 +84,10 @@
         "id": "prompt_newsletter",
         "name": "newsletter_generator",
         "description": "Marketing product highlight templates",
-        "tags": ["email", "marketing"],
+        "tags": [
+          "email",
+          "marketing"
+        ],
         "createdAt": "2026-06-24T18:48:20.000Z",
         "updatedAt": "2026-06-24T18:48:20.000Z",
         "versions": [
@@ -81,7 +95,12 @@
             "version": 1,
             "systemInstruction": "You are a creative eCommerce copywriter. Write a clean, high-impact marketing newsletter.",
             "template": "Draft a promotional newsletter introducing {{product_name}}! Emphasize the core feature: {{feature}}! Standard rate: {{original_price}}, special promo rate: {{discount_price}}.",
-            "variables": ["product_name", "feature", "original_price", "discount_price"],
+            "variables": [
+              "product_name",
+              "feature",
+              "original_price",
+              "discount_price"
+            ],
             "parameters": {
               "temperature": 0.85,
               "maxTokens": 1024
@@ -103,7 +122,10 @@
         "id": "prompt_sentiment",
         "name": "sentiment_classifier",
         "description": "Determine positive or negative customer reviews",
-        "tags": ["analysis", "classification"],
+        "tags": [
+          "analysis",
+          "classification"
+        ],
         "createdAt": "2026-06-24T18:49:05.000Z",
         "updatedAt": "2026-06-24T18:49:15.000Z",
         "versions": [
@@ -111,7 +133,9 @@
             "version": 1,
             "systemInstruction": "You are a customer review classifier.",
             "template": "Determine the sentiment of the following product review:\n\nReview: {{review_text}}\n\nSentiment (Positive/Negative/Neutral):",
-            "variables": ["review_text"],
+            "variables": [
+              "review_text"
+            ],
             "parameters": {
               "temperature": 0.3,
               "maxTokens": 50
@@ -123,7 +147,9 @@
             "version": 2,
             "systemInstruction": "You are an advanced sentiment analyzer. Categorize reviews precisely.",
             "template": "Classify the sentiment and identify key entities in this product review.\n\nReview: {{review_text}}\n\nProvide the response in the following JSON format:\n{\n  \"sentiment\": \"Positive\" | \"Negative\" | \"Neutral\" | \"Mixed\",\n  \"confidence\": 0.0 - 1.0,\n  \"aspects_mentioned\": [\"list\", \"of\", \"features\"],\n  \"summary_sentence\": \"One sentence recap\"\n}",
-            "variables": ["review_text"],
+            "variables": [
+              "review_text"
+            ],
             "parameters": {
               "temperature": 0.1,
               "maxTokens": 256
@@ -145,7 +171,10 @@
         "id": "prompt_code_review",
         "name": "code_reviewer",
         "description": "Perform security and performance audits",
-        "tags": ["coding", "review"],
+        "tags": [
+          "coding",
+          "review"
+        ],
         "createdAt": "2026-06-24T18:49:25.000Z",
         "updatedAt": "2026-06-24T18:49:35.000Z",
         "versions": [
@@ -153,7 +182,10 @@
             "version": 1,
             "systemInstruction": "You are a senior software engineer reviewing code.",
             "template": "Please review the following code snippet written in {{language}}:\n\n```{{language}}\n{{code}}\n```\n\nProvide a summary of potential improvements.",
-            "variables": ["language", "code"],
+            "variables": [
+              "language",
+              "code"
+            ],
             "parameters": {
               "temperature": 0.5,
               "maxTokens": 1000
@@ -165,7 +197,10 @@
             "version": 2,
             "systemInstruction": "You are a senior software engineer specializing in security and performance optimizations.",
             "template": "Please perform a security and performance code review on the following code snippet written in {{language}}:\n\n```{{language}}\n{{code}}\n```\n\nFor any issue you find, categorize it as [Security], [Performance], or [Style], and suggest a fix.",
-            "variables": ["language", "code"],
+            "variables": [
+              "language",
+              "code"
+            ],
             "parameters": {
               "temperature": 0.2,
               "maxTokens": 1500
@@ -187,7 +222,10 @@
         "id": "prompt_text_editor",
         "name": "text_editor",
         "description": "Proofread and adjust style target",
-        "tags": ["copywriting", "editing"],
+        "tags": [
+          "copywriting",
+          "editing"
+        ],
         "createdAt": "2026-06-24T18:49:45.000Z",
         "updatedAt": "2026-06-24T18:49:55.000Z",
         "versions": [
@@ -195,7 +233,9 @@
             "version": 1,
             "systemInstruction": "You are a copyeditor.",
             "template": "Fix spelling and grammar errors in this text:\n\n{{input_text}}",
-            "variables": ["input_text"],
+            "variables": [
+              "input_text"
+            ],
             "parameters": {
               "temperature": 0.3,
               "maxTokens": 500
@@ -207,7 +247,10 @@
             "version": 2,
             "systemInstruction": "You are a professional book editor and writing coach.",
             "template": "Revise the following text for grammar, flow, tone, and readability. Explain the major changes you made.\n\nOriginal Text:\n{{input_text}}\n\nTone Target: {{tone}}",
-            "variables": ["input_text", "tone"],
+            "variables": [
+              "input_text",
+              "tone"
+            ],
             "parameters": {
               "temperature": 0.7,
               "maxTokens": 1000
@@ -216,6 +259,159 @@
             "description": "Tone adjustments and explanation"
           }
         ]
+      }
+    ]
+  },
+  {
+    "id": "proj_1782345388539",
+    "name": "Creative Writing Suite",
+    "prompts": [
+      {
+        "id": "prompt_1782345393823",
+        "name": "world-builder",
+        "description": "Generates immersive settings, geography, and lore for fictional worlds.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are an expert world-building consultant. Your goal is to create cohesive, immersive, and logically consistent fictional worlds. When asked to build a world, consider the interplay between geography, magic/technology systems, history, and cultural norms.",
+            "template": "Describe a [Type of World, e.g., High Fantasy, Cyberpunk, Space Opera] setting. Include details on:\n- Geography & Climate\n- Magic or Technology Systems\n- Key Historical Events\n- Cultural Norms & Architecture",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:02.494Z",
+            "description": "Generates immersive settings, geography, and lore for fictional worlds."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345395336",
+        "name": "character-builder",
+        "description": "Develops deep character profiles, including motivations, flaws, and backstories.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a master character designer. Your goal is to create multi-dimensional characters that feel real and relatable. Focus on internal conflicts, unique voice, and believable motivations.",
+            "template": "Create a detailed character profile for a [Role/Archetype] in a [Genre] setting. Include:\n- Name & Physical Description\n- Core Motivation & Internal Conflict\n- Key Flaws & Strengths\n- Backstory Summary\n- Unique Speech Patterns or Mannerisms",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:06.781Z",
+            "description": "Develops deep character profiles, including motivations, flaws, and backstories."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345397143",
+        "name": "dramatic-beat-producer",
+        "description": "Outlines the emotional and narrative arc of a scene or story.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a narrative architect. Your goal is to break down scenes into emotional beats and narrative progression. Focus on the 'why' behind each action and the shift in power or emotion between beats.",
+            "template": "Outline the dramatic beats for a scene where [Brief Scene Description]. \nBreak it down into:\n- Inciting Incident\n- Rising Action (3-5 beats)\n- Climax\n- Resolution/Aftermath",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:10.854Z",
+            "description": "Outlines the emotional and narrative arc of a scene or story."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345398921",
+        "name": "article-planner",
+        "description": "Structures and outlines content for blog posts, essays, and news articles.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a professional content strategist. Your goal is to create clear, engaging, and structured outlines for various types of written content. Focus on logical flow and audience engagement.",
+            "template": "Create a detailed outline for an [Article Type, e.g., Blog Post, Whitepaper, News Report] about [Topic]. \nInclude:\n- Catchy Headline Ideas\n- Introduction (Hook, Thesis/Main Point)\n- Key Sections with Bullet Points\n- Conclusion & Call to Action",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:15.193Z",
+            "description": "Structures and outlines content for blog posts, essays, and news articles."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345400302",
+        "name": "article-writer",
+        "description": "Drafts high-quality long-form content based on provided outlines.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a skilled long-form writer. Your goal is to expand outlines into polished, engaging, and well-paced prose. Maintain a consistent tone and ensure smooth transitions between sections.",
+            "template": "Using the following outline, write a full [Article Type] about [Topic]. \nTone: [e.g., Professional, Conversational, Academic]\nOutline:\n[Insert Outline Here]",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:19.200Z",
+            "description": "Drafts high-quality long-form content based on provided outlines."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345401639",
+        "name": "prose-evaluator",
+        "description": "Analyzes prose for style, flow, and emotional resonance.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are a literary critic and prose stylist. Your goal is to provide nuanced feedback on writing style, pacing, and emotional impact. Be specific about what works and what could be improved.",
+            "template": "Analyze the following piece of prose for style, flow, and emotional resonance. Provide specific feedback on:\n- Word Choice & Imagery\n- Sentence Variety & Pacing\n- Emotional Impact\n- Areas for Improvement\n\\n\\nProse:\n[Insert Prose Here]",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:23.495Z",
+            "description": "Analyzes prose for style, flow, and emotional resonance."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
+      },
+      {
+        "id": "prompt_1782345402913",
+        "name": "writing-grader",
+        "description": "Provides objective scoring and constructive feedback on writing quality.",
+        "versions": [
+          {
+            "version": 1,
+            "systemInstruction": "You are an objective writing evaluator. Your goal is to provide a structured critique and a score (1-10) based on clarity, structure, tone, and engagement. Be constructive and actionable.",
+            "template": "Evaluate the following writing based on the following criteria:\n- Clarity (1-10)\n- Structure (1-10)\n- Tone Consistency (1-10)\n- Engagement (1-10)\n- Overall Score: [Average]\n\nProvide a summary of strengths and specific actionable feedback for improvement.\n\nWriting:\n[Insert Writing Here]",
+            "variables": [],
+            "parameters": {
+              "temperature": 0.7,
+              "maxTokens": 2048
+            },
+            "createdAt": "2026-06-24T23:58:28.487Z",
+            "description": "Provides objective scoring and constructive feedback on writing quality."
+          }
+        ],
+        "branches": [],
+        "fewShotExamples": []
       }
     ]
   }

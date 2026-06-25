@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { PromptStudio } from './components/PromptStudio';
@@ -7,9 +7,21 @@ import { Evaluator } from './components/Evaluator';
 import { Optimizer } from './components/Optimizer';
 import { Settings } from './components/Settings';
 import { AgentWorkspace } from './components/AgentWorkspace';
+import { PromptCopilot } from './components/PromptCopilot';
 
 function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setCurrentView(customEvent.detail);
+      }
+    };
+    window.addEventListener('switch-view', handler);
+    return () => window.removeEventListener('switch-view', handler);
+  }, []);
 
   const renderView = () => {
     switch (currentView) {
@@ -25,6 +37,8 @@ function App() {
         return <Optimizer />;
       case 'agent-workspace':
         return <AgentWorkspace />;
+      case 'copilot':
+        return <PromptCopilot />;
       case 'settings':
         return <Settings />;
       default:

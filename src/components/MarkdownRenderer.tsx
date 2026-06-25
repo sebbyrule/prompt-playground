@@ -1,10 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Copy, Check, ArrowUpRight } from 'lucide-react';
 
 interface MarkdownRendererProps {
   content: string;
+  enableCodeBlockActions?: boolean;
+  onApplyToEditor?: (code: string) => void;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
+const CodeBlock: React.FC<{
+  code: string;
+  lang: string;
+  enableActions?: boolean;
+  onApply?: (code: string) => void;
+}> = ({ code, lang, enableActions, onApply }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code.trim());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="code-block-wrapper" style={{ margin: '14px 0', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+      <div className="code-block-header" style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ textTransform: 'uppercase' }}>{lang || 'code'}</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button 
+            onClick={handleCopy} 
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '11px', outline: 'none' }}
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          {enableActions && onApply && (
+            <button 
+              onClick={() => onApply(code)} 
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', color: 'var(--accent-primary)', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, outline: 'none' }}
+            >
+              <ArrowUpRight size={11} />
+              Apply to Editor
+            </button>
+          )}
+        </div>
+      </div>
+      <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.2)', overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        <code>{code.trim()}</code>
+      </pre>
+    </div>
+  );
+};
+
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, enableCodeBlockActions, onApplyToEditor }) => {
   if (!content) return null;
 
   // Split content by code blocks to isolate code from standard markdown text
@@ -20,16 +67,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
           const code = match ? match[2] : part.slice(3, -3);
 
           return (
-            <div key={index} className="code-block-wrapper" style={{ margin: '14px 0', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
-              {lang && (
-                <div className="code-block-header" style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  {lang}
-                </div>
-              )}
-              <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.2)', overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
-                <code>{code.trim()}</code>
-              </pre>
-            </div>
+            <CodeBlock 
+              key={index} 
+              code={code} 
+              lang={lang} 
+              enableActions={enableCodeBlockActions} 
+              onApply={onApplyToEditor} 
+            />
           );
         }
 

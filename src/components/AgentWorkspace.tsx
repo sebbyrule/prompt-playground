@@ -14,7 +14,11 @@ import {
   HelpCircle, 
   Sparkles,
   Plus,
-  RotateCcw
+  RotateCcw,
+  Code2,
+  X,
+  Copy,
+  Check
 } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -38,6 +42,7 @@ interface Tool {
   executionMode: 'mock' | 'javascript';
   code: string;
   createdAt: string;
+  folder?: string;
 }
 
 interface Skill {
@@ -137,6 +142,8 @@ export const AgentWorkspace: React.FC = () => {
   const [toolCode, setToolCode] = useState(JS_TEMPLATE);
   const [toolMockResponse, setToolMockResponse] = useState('{}');
   const [toolParams, setToolParams] = useState<ToolParameter[]>([]);
+  const [toolFolder, setToolFolder] = useState('');
+  const [expandedFolders, setExpandedFolders] = useState<{ [folderName: string]: boolean }>({});
   const [newParamName, setNewParamName] = useState('');
   const [newParamType, setNewParamType] = useState<ToolParameter['type']>('string');
   const [newParamDesc, setNewParamDesc] = useState('');
@@ -164,6 +171,27 @@ export const AgentWorkspace: React.FC = () => {
 
   // Accordion UI state for tool calls
   const [openTraceIndex, setOpenTraceIndex] = useState<number | null>(null);
+
+  // Payload Inspector Modal state
+  const [inspectPayload, setInspectPayload] = useState<any>(null);
+  const [inspectPayloadTab, setInspectPayloadTab] = useState<'request' | 'response'>('request');
+  const [payloadCopied, setPayloadCopied] = useState(false);
+
+  // Group custom tools by folder
+  const groupedTools: { [folderName: string]: Tool[] } = {};
+  const ungroupedTools: Tool[] = [];
+  
+  tools.forEach(t => {
+    const f = t.folder?.trim();
+    if (f) {
+      if (!groupedTools[f]) {
+        groupedTools[f] = [];
+      }
+      groupedTools[f].push(t);
+    } else {
+      ungroupedTools.push(t);
+    }
+  });
 
   const models = [
     { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
@@ -210,6 +238,13 @@ export const AgentWorkspace: React.FC = () => {
     }
   };
 
+  const toggleFolder = (folderName: string) => {
+    setExpandedFolders(prev => ({
+      ...prev,
+      [folderName]: !prev[folderName]
+    }));
+  };
+
   // Tool Selection & Form Mapping
   const selectTool = (tool: Tool | null) => {
     setSelectedTool(tool);
@@ -219,6 +254,7 @@ export const AgentWorkspace: React.FC = () => {
       setToolMockResponse(tool.mockResponse);
       setToolExecutionMode(tool.executionMode || 'mock');
       setToolCode(tool.code || JS_TEMPLATE);
+      setToolFolder(tool.folder || '');
       
       const params: ToolParameter[] = [];
       if (tool.parameters && tool.parameters.properties) {
@@ -239,6 +275,7 @@ export const AgentWorkspace: React.FC = () => {
       setToolExecutionMode('mock');
       setToolCode(JS_TEMPLATE);
       setToolParams([]);
+      setToolFolder('');
     }
   };
 
@@ -328,7 +365,8 @@ export const AgentWorkspace: React.FC = () => {
       },
       mockResponse: toolMockResponse,
       executionMode: toolExecutionMode,
-      code: toolCode
+      code: toolCode,
+      folder: toolFolder.trim()
     };
 
     try {
@@ -927,7 +965,42 @@ export const AgentWorkspace: React.FC = () => {
             </div>
             
             <div className="list-wrapper">
-              {tools.map(t => (
+              {/* Grouped Folders */}
+              {Object.entries(groupedTools).map(([folderName, folderTools]) => {
+                const isExpanded = expandedFolders[folderName] !== false; // default expanded
+                return (
+                  <div key={folderName} className="sidebar-folder-group">
+                    <div 
+                      className="sidebar-folder-header"
+                      onClick={() => toggleFolder(folderName)}
+                    >
+                      <span className="folder-arrow">{isExpanded ? '▼' : '▶'}</span>
+                      <span className="folder-icon">📂</span>
+                      <span className="folder-title">{folderName} ({folderTools.length})</span>
+                    </div>
+                    {isExpanded && (
+                      <div className="sidebar-folder-contents">
+                        {folderTools.map(t => (
+                          <div 
+                            key={t.id} 
+                            className={`list-item ${selectedTool?.id === t.id ? 'active' : ''}`}
+                            onClick={() => selectTool(t)}
+                          >
+                            <div className="item-title">{t.name}</div>
+                            <div className="item-sub">{t.description || 'No description provided'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Ungrouped Custom Tools */}
+              {ungroupedTools.length > 0 && Object.keys(groupedTools).length > 0 && (
+                <div className="sidebar-section-divider">General Tools</div>
+              )}
+              {ungroupedTools.map(t => (
                 <div 
                   key={t.id} 
                   className={`list-item ${selectedTool?.id === t.id ? 'active' : ''}`}
@@ -954,14 +1027,25 @@ export const AgentWorkspace: React.FC = () => {
             </div>
 
             <div className="editor-fields">
-              <div className="form-group">
-                <label>Tool/Function Name</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. search_database (lowercase, underscores only)"
-                  value={toolName} 
-                  onChange={(e) => setToolName(e.target.value)} 
-                />
+              <div className="form-group-row">
+                <div className="form-group">
+                  <label>Tool/Function Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. search_database"
+                    value={toolName} 
+                    onChange={(e) => setToolName(e.target.value)} 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Folder / Group Category</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Database (optional)"
+                    value={toolFolder} 
+                    onChange={(e) => setToolFolder(e.target.value)} 
+                  />
+                </div>
               </div>
 
               <div className="form-group">
@@ -1175,7 +1259,46 @@ export const AgentWorkspace: React.FC = () => {
                   </label>
 
                   {/* Custom user registered tools */}
-                  {tools.map(t => (
+                  {Object.entries(groupedTools).map(([folderName, folderTools]) => {
+                    const isExpanded = expandedFolders[`skill_${folderName}`] !== false; // default expanded
+                    return (
+                      <div key={folderName} className="skill-tools-folder-group" style={{ gridColumn: '1 / -1', marginTop: '8px' }}>
+                        <div 
+                          className="skill-folder-header"
+                          onClick={() => toggleFolder(`skill_${folderName}`)}
+                        >
+                          <span className="folder-arrow">{isExpanded ? '▼' : '▶'}</span>
+                          <span className="folder-icon">📂</span>
+                          <span className="folder-title">{folderName} ({folderTools.length})</span>
+                        </div>
+                        {isExpanded && (
+                          <div className="skill-folder-contents">
+                            {folderTools.map(t => (
+                              <label key={t.id} className="tool-checkbox-item">
+                                <input 
+                                  type="checkbox"
+                                  checked={skillSelectedTools.includes(t.id)}
+                                  onChange={() => handleToggleToolForSkill(t.id)}
+                                />
+                                <div className="checkbox-info">
+                                  <span className="chk-tool-name">{t.name}</span>
+                                  <span className="chk-tool-desc">{t.description}</span>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Ungrouped Custom Tools */}
+                  {ungroupedTools.length > 0 && Object.keys(groupedTools).length > 0 && (
+                    <div style={{ gridColumn: '1 / -1', marginTop: '8px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+                      General Tools
+                    </div>
+                  )}
+                  {ungroupedTools.map(t => (
                     <label key={t.id} className="tool-checkbox-item">
                       <input 
                         type="checkbox"
@@ -1328,13 +1451,24 @@ export const AgentWorkspace: React.FC = () => {
                           <div key={index} className="chat-row assistant-row">
                             <div className="chat-bubble assistant-bubble">
                               <MarkdownRenderer content={step.content} />
-                              <button 
-                                className="rewind-btn" 
-                                title="Rewind convo to this step" 
-                                onClick={() => handleRewindSession(index)}
-                              >
-                                <RotateCcw size={11} /> Rewind
-                              </button>
+                              <div className="bubble-actions-row">
+                                {(step.rawRequest || step.rawResponse) && (
+                                  <button
+                                    className="inspect-payload-btn"
+                                    title="Inspect API payload"
+                                    onClick={(e) => { e.stopPropagation(); setInspectPayload(step); setInspectPayloadTab('request'); setPayloadCopied(false); }}
+                                  >
+                                    <Code2 size={12} />
+                                  </button>
+                                )}
+                                <button 
+                                  className="rewind-btn" 
+                                  title="Rewind convo to this step" 
+                                  onClick={() => handleRewindSession(index)}
+                                >
+                                  <RotateCcw size={11} /> Rewind
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -1347,6 +1481,15 @@ export const AgentWorkspace: React.FC = () => {
                             >
                               <Cpu size={12} style={{ color: 'var(--accent-primary)' }} />
                               <span>Model requested tool execution ({step.toolCalls?.length} calls)</span>
+                              {(step.rawRequest || step.rawResponse) && (
+                                <button
+                                  className="inspect-payload-btn trace-inspect-btn"
+                                  title="Inspect API payload"
+                                  onClick={(e) => { e.stopPropagation(); setInspectPayload(step); setInspectPayloadTab('request'); setPayloadCopied(false); }}
+                                >
+                                  <Code2 size={12} />
+                                </button>
+                              )}
                               <span className="toggle-indicator">{openTraceIndex === index ? '▲' : '▼'}</span>
                             </div>
                             
@@ -1372,6 +1515,15 @@ export const AgentWorkspace: React.FC = () => {
                           >
                             <Wrench size={12} style={{ color: 'var(--success)' }} />
                             <span>Tool returned response: <b>{step.name}</b></span>
+                            {(step.rawRequest || step.rawResponse) && (
+                              <button
+                                className="inspect-payload-btn trace-inspect-btn"
+                                title="Inspect API payload"
+                                onClick={(e) => { e.stopPropagation(); setInspectPayload(step); setInspectPayloadTab('request'); setPayloadCopied(false); }}
+                              >
+                                <Code2 size={12} />
+                              </button>
+                            )}
                             <span className="toggle-indicator">{openTraceIndex === index ? '▲' : '▼'}</span>
                           </div>
                           
@@ -1458,6 +1610,77 @@ export const AgentWorkspace: React.FC = () => {
                 <p>Choose an existing session on the left or click "New Chat" to configure a live conversation.</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Payload Inspector Modal Overlay */}
+      {inspectPayload && (
+        <div
+          className="payload-inspector-backdrop"
+          onClick={() => setInspectPayload(null)}
+        >
+          <div
+            className="payload-inspector-modal glass-panel-glow"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="payload-inspector-header">
+              <div className="payload-inspector-title">
+                <Code2 size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span>API Payload Inspector</span>
+                {inspectPayload.role === 'tool' && inspectPayload.name && (
+                  <span className="payload-inspector-badge">{inspectPayload.name}</span>
+                )}
+              </div>
+              <button
+                className="payload-inspector-close"
+                onClick={() => setInspectPayload(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="payload-inspector-tabs">
+              <button
+                className={`payload-tab-btn ${inspectPayloadTab === 'request' ? 'active' : ''}`}
+                onClick={() => { setInspectPayloadTab('request'); setPayloadCopied(false); }}
+              >
+                Request
+              </button>
+              <button
+                className={`payload-tab-btn ${inspectPayloadTab === 'response' ? 'active' : ''}`}
+                onClick={() => { setInspectPayloadTab('response'); setPayloadCopied(false); }}
+              >
+                Response
+              </button>
+            </div>
+
+            <div className="payload-inspector-body">
+              <pre className="payload-json-block">
+                {JSON.stringify(
+                  inspectPayloadTab === 'request'
+                    ? inspectPayload.rawRequest ?? { note: 'No raw request data available for this step.' }
+                    : inspectPayload.rawResponse ?? { note: 'No raw response data available for this step.' },
+                  null,
+                  2
+                )}
+              </pre>
+            </div>
+
+            <div className="payload-inspector-footer">
+              <button
+                className="payload-copy-btn"
+                onClick={() => {
+                  const data = inspectPayloadTab === 'request'
+                    ? inspectPayload.rawRequest
+                    : inspectPayload.rawResponse;
+                  navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+                  setPayloadCopied(true);
+                  setTimeout(() => setPayloadCopied(false), 2000);
+                }}
+              >
+                {payloadCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy JSON</>}
+              </button>
+            </div>
           </div>
         </div>
       )}
