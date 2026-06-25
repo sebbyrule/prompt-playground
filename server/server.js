@@ -12,6 +12,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+function resolveLocalUrl(url) {
+  if (process.env.DOCKER_RUNNING === 'true' && url) {
+    return url.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+  }
+  return url;
+}
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // support large payloads for vision base64
 
@@ -436,8 +443,8 @@ async function executeModelRun({ model, systemInstruction, prompt, temperature, 
   const geminiKey = headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
   const claudeKey = headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
   const openaiKey = headers['x-openai-key'] || process.env.OPENAI_API_KEY;
-  const ollamaUrl = headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   let result;
   if (model.startsWith('gemini')) {
@@ -1702,8 +1709,8 @@ app.post('/api/agent/run', async (req, res) => {
   const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
   const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
   const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
-  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   const trace = [];
   let currentHistory = history ? JSON.parse(JSON.stringify(history)) : null;
@@ -2087,8 +2094,8 @@ app.post('/api/copilot/critique', async (req, res) => {
   const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
   const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
   const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
-  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
   const apiKey = modelName.startsWith('gemini') ? geminiKey 
@@ -2168,8 +2175,8 @@ app.post('/api/copilot/generate-assertions', async (req, res) => {
   const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
   const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
   const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
-  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
   const apiKey = modelName.startsWith('gemini') ? geminiKey 
@@ -2245,8 +2252,8 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
 });
 
 app.get('/api/local-models', async (req, res) => {
-  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   const models = [];
 
@@ -2300,8 +2307,8 @@ app.post('/api/copilot/chat', async (req, res) => {
   const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
   const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
   const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
-  const ollamaUrl = req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434';
-  const lmStudioUrl = req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234';
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
 
   const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
   const apiKey = modelName.startsWith('gemini') ? geminiKey 

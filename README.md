@@ -138,6 +138,8 @@ For containerized deployment, you can build and run Prompt Playground using Dock
     *   Open `http://localhost:5050/` in your browser.
 3.  **Data Persistence**:
     *   The container maps your local `./data` directory directly, so any projects, prompt templates, tools, and custom skill changes are written locally and can be version-controlled with Git on the host machine.
+4.  **Local Model Routing**:
+    *   The compose configuration passes `DOCKER_RUNNING=true` which enables the server to dynamically translate local model endpoints (e.g. `http://localhost:11434` for Ollama or `http://localhost:1234` for LM Studio) to `host.docker.internal` so that container requests are successfully routed back to the model servers running on the host.
 
 ---
 
