@@ -61,12 +61,39 @@ function sanitizeJsonString(str) {
   return result;
 }
 
-function parseJsonFromLlm(text) {
+function extractJsonString(text) {
   if (typeof text !== 'string') return text;
   let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+  
+  // 1. Try to extract content inside ```json ... ``` or ``` ... ```
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = cleaned.match(codeBlockRegex);
+  if (match && match[1]) {
+    return match[1].trim();
   }
+  
+  // 2. Find first brace and bracket
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+  
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace !== -1 && lastBrace > firstBrace) {
+      return cleaned.slice(firstBrace, lastBrace + 1).trim();
+    }
+  } else if (firstBracket !== -1) {
+    const lastBracket = cleaned.lastIndexOf(']');
+    if (lastBracket !== -1 && lastBracket > firstBracket) {
+      return cleaned.slice(firstBracket, lastBracket + 1).trim();
+    }
+  }
+  
+  return cleaned;
+}
+
+function parseJsonFromLlm(text) {
+  if (typeof text !== 'string') return text;
+  const cleaned = extractJsonString(text);
   const sanitized = sanitizeJsonString(cleaned);
   return JSON.parse(sanitized);
 }
@@ -2193,19 +2220,19 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
   try {
     let resultText = '';
     if (modelName.startsWith('gemini')) {
-      const runRes = await runGemini({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      const runRes = await runGemini({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('claude')) {
-      const runRes = await runClaude({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      const runRes = await runClaude({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
-      const runRes = await runOpenAI({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey });
+      const runRes = await runOpenAI({ model: modelName, prompt: critiquePrompt, temperature: 0.1, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('ollama/')) {
-      const runRes = await runOllama({ model: modelName, prompt: critiquePrompt, temperature: 0.1, ollamaUrl });
+      const runRes = await runOllama({ model: modelName, prompt: critiquePrompt, temperature: 0.1, ollamaUrl, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('lmstudio/')) {
-      const runRes = await runLMStudio({ model: modelName, prompt: critiquePrompt, temperature: 0.1, lmStudioUrl });
+      const runRes = await runLMStudio({ model: modelName, prompt: critiquePrompt, temperature: 0.1, lmStudioUrl, maxTokens: 4096 });
       resultText = runRes.output;
     }
 
@@ -2213,6 +2240,7 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
     res.json(json);
   } catch (err) {
     console.error('Critique failed:', err);
+    console.error('Raw resultText was:', resultText);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2272,19 +2300,19 @@ Ensure the response is strictly raw JSON, do not wrap in markdown code blocks.`;
   try {
     let resultText = '';
     if (modelName.startsWith('gemini')) {
-      const runRes = await runGemini({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      const runRes = await runGemini({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('claude')) {
-      const runRes = await runClaude({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      const runRes = await runClaude({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
-      const runRes = await runOpenAI({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey });
+      const runRes = await runOpenAI({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, apiKey, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('ollama/')) {
-      const runRes = await runOllama({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, ollamaUrl });
+      const runRes = await runOllama({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, ollamaUrl, maxTokens: 4096 });
       resultText = runRes.output;
     } else if (modelName.startsWith('lmstudio/')) {
-      const runRes = await runLMStudio({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, lmStudioUrl });
+      const runRes = await runLMStudio({ model: modelName, prompt: assertionsPrompt, temperature: 0.2, lmStudioUrl, maxTokens: 4096 });
       resultText = runRes.output;
     }
 
