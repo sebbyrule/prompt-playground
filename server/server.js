@@ -2830,6 +2830,36 @@ const DEFAULT_COMFY_WORKFLOW = {
   }
 };
 
+async function checkAndResolveComfyUrl(url) {
+  if (!url || !url.includes('localhost')) return url;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
+    const res = await fetch(`${url}/`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok || res.status === 404 || res.status === 405) {
+      return url;
+    }
+  } catch (e) {
+    // failed, try fallback
+  }
+  
+  const fallback = url.replace('localhost', '127.0.0.1');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
+    const res = await fetch(`${fallback}/`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok || res.status === 404 || res.status === 405) {
+      console.log(`ComfyUI: Automatically resolved localhost to 127.0.0.1`);
+      return fallback;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return url;
+}
+
 async function getComfyUiCheckpoints(comfyUrl) {
   try {
     const res = await fetch(`${comfyUrl}/object_info`);
@@ -2840,7 +2870,7 @@ async function getComfyUiCheckpoints(comfyUrl) {
       return loader.input.required.ckpt_name[0] || [];
     }
   } catch (e) {
-    console.error('Failed to fetch checkpoints from ComfyUI:', e);
+    console.error(`Failed to fetch checkpoints from ComfyUI at ${comfyUrl}:`, e);
   }
   return [];
 }
@@ -2943,7 +2973,8 @@ app.delete('/api/image-studio/gallery/:id', (req, res) => {
 
 // 6. Get checkpoints from ComfyUI
 app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
-  const comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  let comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  comfyUrl = await checkAndResolveComfyUrl(comfyUrl);
   const checkpoints = await getComfyUiCheckpoints(comfyUrl);
   res.json(checkpoints);
 });
@@ -2951,7 +2982,8 @@ app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
 // 7. Generate image via ComfyUI
 app.post('/api/image-studio/generate', async (req, res) => {
   const params = req.body;
-  const comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  let comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  comfyUrl = await checkAndResolveComfyUrl(comfyUrl);
 
   try {
     const workflowObj = buildComfyWorkflow(params);
