@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './ImageStudio.css';
 import api from '../utils/api';
 import { 
@@ -16,7 +16,10 @@ import {
   ArrowRight,
   Info,
   Grid,
-  Edit3
+  Edit3,
+  Edit,
+  Brush,
+  Wind
 } from 'lucide-react';
 
 interface ImagePrompt {
@@ -60,6 +63,16 @@ interface GalleryItem {
 interface WildcardFile {
   name: string;
   content: string;
+}
+
+interface GraphNode {
+  id: string;
+  type: string;
+  title: string;
+  inputs: any;
+  x: number;
+  y: number;
+  column: number;
 }
 
 // PNG Chunk Parser for extracting ComfyUI parameters
@@ -190,6 +203,77 @@ function extractParamsFromComfyPrompt(promptObj: any) {
   return params;
 }
 
+// Compute topological layouts for custom workflows
+function layoutWorkflowNodes(workflow: any): GraphNode[] {
+  const nodes: GraphNode[] = [];
+  const nodeColumns: { [id: string]: number } = {};
+  
+  for (const id in workflow) {
+    nodeColumns[id] = 0;
+  }
+  
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations < 10) {
+    changed = false;
+    iterations++;
+    
+    for (const id in workflow) {
+      const node = workflow[id];
+      let maxParentCol = -1;
+      
+      if (node.inputs) {
+        for (const key in node.inputs) {
+          const inputVal = node.inputs[key];
+          if (Array.isArray(inputVal) && inputVal.length >= 1) {
+            const parentId = String(inputVal[0]);
+            if (nodeColumns[parentId] !== undefined) {
+              maxParentCol = Math.max(maxParentCol, nodeColumns[parentId]);
+            }
+          }
+        }
+      }
+      
+      if (maxParentCol !== -1) {
+        const newCol = maxParentCol + 1;
+        if (nodeColumns[id] !== newCol) {
+          nodeColumns[id] = newCol;
+          changed = true;
+        }
+      }
+    }
+  }
+  
+  const columns: { [col: number]: string[] } = {};
+  for (const id in workflow) {
+    const col = nodeColumns[id];
+    if (!columns[col]) columns[col] = [];
+    columns[col].push(id);
+  }
+  
+  const colWidth = 240;
+  const rowHeight = 130;
+  
+  for (const colStr in columns) {
+    const col = Number(colStr);
+    const ids = columns[col];
+    ids.forEach((id, rowIdx) => {
+      const node = workflow[id];
+      nodes.push({
+        id,
+        type: node.class_type,
+        title: node.class_type.replace(/([A-Z])/g, ' $1').trim(),
+        inputs: node.inputs,
+        x: 50 + col * colWidth,
+        y: 50 + rowIdx * rowHeight,
+        column: col
+      });
+    });
+  }
+  
+  return nodes;
+}
+
 export const ImageStudio: React.FC = () => {
   // Saved prompts state
   const [savedPrompts, setSavedPrompts] = useState<ImagePrompt[]>([]);
@@ -247,6 +331,22 @@ export const ImageStudio: React.FC = () => {
   const [matrixProgress, setMatrixProgress] = useState<string>('');
   const [showMatrixOverlay, setShowMatrixOverlay] = useState<boolean>(false);
 
+  // SVG Custom Workflow graph viewer state
+  const [showWorkflowGraph, setShowWorkflowGraph] = useState<boolean>(false);
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
+  const [graphConnections, setGraphConnections] = useState<any[]>([]);
+
+  // HTML5 Image Editor Canvas state
+  const [showCanvasEditor, setShowCanvasEditor] = useState<boolean>(false);
+  const [canvasImageItem, setCanvasImageItem] = useState<GalleryItem | null>(null);
+  const [canvasTool, setCanvasTool] = useState<'brush' | 'eraser' | 'mask'>('brush');
+  const [brushColor, setBrushColor] = useState<string>('#a78bfa');
+  const [brushSize, setBrushSize] = useState<number>(10);
+  const [brightness, setBrightness] = useState<number>(100);
+  const [contrast, setContrast] = useState<number>(100);
+  const [saturate, setSaturate] = useState<number>(100);
+  const [blur, setBlur] = useState<number>(0);
+
   // Gallery state
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [selectedImage, setSelectedImage] = useState<GalleryItem | null>(null);
@@ -255,6 +355,12 @@ export const ImageStudio: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [checkpointsLoading, setCheckpointsLoading] = useState<boolean>(false);
+
+  // Canvas Refs
+  const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const [lastPos, setLastPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Constants
   const samplers = [
@@ -273,6 +379,39 @@ export const ImageStudio: React.FC = () => {
     fetchLoras();
     fetchWildcards();
   }, []);
+
+  // Initialize and load canvas image
+  useEffect(() => {
+    if (showCanvasEditor && canvasImageItem) {
+      setTimeout(() => {
+        const mainCanvas = mainCanvasRef.current;
+        const maskCanvas = maskCanvasRef.current;
+        if (!mainCanvas || !maskCanvas) return;
+
+        const mainCtx = mainCanvas.getContext('2d');
+        const maskCtx = maskCanvas.getContext('2d');
+        if (!mainCtx || !maskCtx) return;
+
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = canvasImageItem.imagePath;
+        img.onload = () => {
+          mainCanvas.width = img.width;
+          mainCanvas.height = img.height;
+          maskCanvas.width = img.width;
+          maskCanvas.height = img.height;
+
+          // Apply adjustment filters
+          mainCtx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%) blur(${blur}px)`;
+          mainCtx.drawImage(img, 0, 0);
+          mainCtx.filter = 'none';
+
+          // Clear mask transparency
+          maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        };
+      }, 100);
+    }
+  }, [showCanvasEditor, canvasImageItem, brightness, contrast, saturate, blur]);
 
   const showStatus = (text: string, type: 'success' | 'error' | 'info' = 'info', duration = 3000) => {
     setStatusMessage({ text, type });
@@ -779,6 +918,198 @@ export const ImageStudio: React.FC = () => {
     fetchGallery();
   };
 
+  // SVG workflow diagram modal trigger
+  const handleOpenWorkflowGraph = () => {
+    try {
+      const parsed = JSON.parse(customWorkflow);
+      const nodes = layoutWorkflowNodes(parsed);
+      
+      // Calculate connections mapping
+      const connections: any[] = [];
+      nodes.forEach(node => {
+        if (node.inputs) {
+          for (const key in node.inputs) {
+            const inputVal = node.inputs[key];
+            if (Array.isArray(inputVal) && inputVal.length >= 1) {
+              const parentId = String(inputVal[0]);
+              const outputIdx = inputVal[1];
+              connections.push({
+                fromId: parentId,
+                fromOutput: outputIdx,
+                toId: node.id,
+                toInput: key
+              });
+            }
+          }
+        }
+      });
+
+      setGraphNodes(nodes);
+      setGraphConnections(connections);
+      setShowWorkflowGraph(true);
+    } catch (e: any) {
+      showStatus('Invalid Workflow JSON: ' + e.message, 'error');
+    }
+  };
+
+  // Drawing Handlers
+  const handleDrawingStart = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const mainCanvas = mainCanvasRef.current;
+    if (!mainCanvas) return;
+    
+    setIsDrawing(true);
+    const rect = mainCanvas.getBoundingClientRect();
+    // Translate client coordinates relative to physical canvas scale
+    const x = ((e.clientX - rect.left) / rect.width) * mainCanvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * mainCanvas.height;
+    setLastPos({ x, y });
+  };
+
+  const handleDrawingMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    
+    const mainCanvas = mainCanvasRef.current;
+    const maskCanvas = maskCanvasRef.current;
+    if (!mainCanvas || !maskCanvas) return;
+
+    const mainCtx = mainCanvas.getContext('2d');
+    const maskCtx = maskCanvas.getContext('2d');
+    if (!mainCtx || !maskCtx) return;
+
+    const rect = mainCanvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * mainCanvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * mainCanvas.height;
+
+    const activeCtx = canvasTool === 'mask' ? maskCtx : mainCtx;
+    activeCtx.beginPath();
+    activeCtx.moveTo(lastPos.x, lastPos.y);
+    activeCtx.lineTo(x, y);
+
+    if (canvasTool === 'eraser') {
+      activeCtx.globalCompositeOperation = 'destination-out';
+      activeCtx.lineWidth = brushSize;
+      activeCtx.strokeStyle = 'rgba(0,0,0,1)';
+    } else if (canvasTool === 'mask') {
+      activeCtx.globalCompositeOperation = 'source-over';
+      activeCtx.lineWidth = brushSize;
+      activeCtx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; // semi transparent red
+    } else {
+      activeCtx.globalCompositeOperation = 'source-over';
+      activeCtx.lineWidth = brushSize;
+      activeCtx.strokeStyle = brushColor;
+    }
+    
+    activeCtx.lineCap = 'round';
+    activeCtx.lineJoin = 'round';
+    activeCtx.stroke();
+
+    setLastPos({ x, y });
+  };
+
+  const handleDrawingEnd = () => {
+    setIsDrawing(false);
+  };
+
+  // Export Drawing Canvas
+  const handleSaveCanvasEdited = async () => {
+    const mainCanvas = mainCanvasRef.current;
+    if (!mainCanvas || !canvasImageItem) return;
+
+    setIsLoading(true);
+    showStatus('Saving edited image to gallery...', 'info');
+
+    // Bake and grab base64 representation
+    const dataUrl = mainCanvas.toDataURL('image/png');
+
+    try {
+      const res = await api.post('/api/image-studio/gallery/save-edited', {
+        imageData: dataUrl,
+        promptName: `Canvas: ${canvasImageItem.promptName}`,
+        positivePrompt: canvasImageItem.positivePrompt,
+        negativePrompt: canvasImageItem.negativePrompt,
+        checkpoint: canvasImageItem.checkpoint,
+        width: mainCanvas.width,
+        height: mainCanvas.height,
+        steps: canvasImageItem.steps,
+        cfg: canvasImageItem.cfg,
+        sampler: canvasImageItem.sampler,
+        scheduler: canvasImageItem.scheduler,
+        seed: canvasImageItem.seed
+      });
+      showStatus('Edited image saved as new history entry!', 'success');
+      setShowCanvasEditor(false);
+      setSelectedImage(res);
+      await fetchGallery();
+    } catch (err: any) {
+      showStatus('Failed to save edited canvas: ' + err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUseCanvasAsImg2Img = () => {
+    const mainCanvas = mainCanvasRef.current;
+    if (!mainCanvas) return;
+    const dataUrl = mainCanvas.toDataURL('image/png');
+    setInitialImage(dataUrl);
+    setShowCanvasEditor(false);
+    showStatus('Canvas image loaded as img2img source target!', 'success');
+  };
+
+  // Convert Mask paths to pure Black & White binary inpaint mask file
+  const handleDownloadInpaintMask = () => {
+    const maskCanvas = maskCanvasRef.current;
+    if (!maskCanvas) return;
+
+    // Create a temporary black canvas
+    const tempCanvas = document.createElement('temp-canvas') as any || document.createElement('canvas');
+    tempCanvas.width = maskCanvas.width;
+    tempCanvas.height = maskCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) return;
+
+    // Background Black
+    tempCtx.fillStyle = '#000000';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Draw painted mask strokes on top as pure White
+    const maskCtx = maskCanvas.getContext('2d');
+    if (maskCtx) {
+      // Find all drawn pixels (alpha > 0) and draw them as white
+      const imgData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+      const data = imgData.data;
+      
+      const tempImgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+      const tempData = tempImgData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] > 0) { // If painted mask stroke exists
+          tempData[i] = 255;   // Red
+          tempData[i + 1] = 255; // Green
+          tempData[i + 2] = 255; // Blue
+          tempData[i + 3] = 255; // Alpha
+        }
+      }
+      tempCtx.putImageData(tempImgData, 0, 0);
+    }
+
+    // Trigger download
+    const dataUrl = tempCanvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `mask_${Date.now()}.png`;
+    link.href = dataUrl;
+    link.click();
+    showStatus('Black & white inpaint mask downloaded!', 'success');
+  };
+
+  const handleResetFilters = () => {
+    setBrightness(100);
+    setContrast(100);
+    setSaturate(100);
+    setBlur(0);
+    showStatus('Filters reset.', 'info');
+  };
+
   return (
     <div className="image-studio-container fade-in">
       <div className="image-studio-header">
@@ -1063,7 +1394,10 @@ export const ImageStudio: React.FC = () => {
 
             {useCustomWorkflow ? (
               <div className="form-group">
-                <label>Custom ComfyUI API JSON</label>
+                <div className="section-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label>Custom ComfyUI API JSON</label>
+                  <button className="btn btn-secondary btn-small" onClick={handleOpenWorkflowGraph}><Wind size={12} /> View Graph</button>
+                </div>
                 <textarea 
                   className="code-textarea"
                   placeholder='{"3": {"inputs": {"seed": {{seed}}, "text": "{{positive_prompt}}"...'
@@ -1345,6 +1679,102 @@ export const ImageStudio: React.FC = () => {
         </div>
       </div>
 
+      {/* SVG Workflow Node Graph Modal Overlay */}
+      {showWorkflowGraph && (
+        <div className="modal-backdrop graph-modal-backdrop" onClick={() => setShowWorkflowGraph(false)}>
+          <div className="modal-content graph-modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowWorkflowGraph(false)}><X size={20} /></button>
+            
+            <div className="graph-viewer-header border-bottom" style={{ padding: '16px 24px' }}>
+              <h3>Workflow Node Graph</h3>
+              <p>Visual map of custom ComfyUI workflow pipelines and dependencies.</p>
+            </div>
+
+            <div className="graph-svg-wrapper">
+              <svg className="workflow-svg" width="100%" height="600" viewBox="0 0 1600 800">
+                <defs>
+                  <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="rgba(30, 27, 75, 0.95)" />
+                    <stop offset="100%" stopColor="rgba(15, 23, 42, 0.95)" />
+                  </linearGradient>
+                  <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="var(--accent-primary)" />
+                    <stop offset="100%" stopColor="var(--accent-secondary)" />
+                  </linearGradient>
+                </defs>
+
+                {/* Draw connections first (rendered behind node cards) */}
+                {graphConnections.map((conn, idx) => {
+                  const fromNode = graphNodes.find(n => n.id === conn.fromId);
+                  const toNode = graphNodes.find(n => n.id === conn.toId);
+                  if (!fromNode || !toNode) return null;
+
+                  const x1 = fromNode.x + 190;
+                  const y1 = fromNode.y + 40;
+                  const x2 = toNode.x;
+                  const y2 = toNode.y + 45;
+
+                  const cp1x = x1 + 60;
+                  const cp1y = y1;
+                  const cp2x = x2 - 60;
+                  const cp2y = y2;
+
+                  return (
+                    <g key={idx}>
+                      <path 
+                        d={`M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`}
+                        fill="none"
+                        stroke="url(#lineGrad)"
+                        strokeWidth="2.5"
+                        opacity="0.85"
+                        strokeDasharray="4, 4"
+                      />
+                      <circle cx={x1} cy={y1} r="4" fill="var(--accent-primary)" />
+                      <circle cx={x2} cy={y2} r="4" fill="var(--accent-secondary)" />
+                    </g>
+                  );
+                })}
+
+                {/* Draw Nodes */}
+                {graphNodes.map(node => (
+                  <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+                    <rect 
+                      width="190" 
+                      height="85" 
+                      rx="8" 
+                      fill="url(#nodeGrad)" 
+                      stroke="var(--border-color)" 
+                      strokeWidth="1.5" 
+                      className="graph-node-rect"
+                    />
+                    {/* Node Header */}
+                    <text x="12" y="24" fill="var(--accent-primary)" fontSize="12" fontWeight="700" fontFamily="sans-serif">
+                      #{node.id} {node.title}
+                    </text>
+                    
+                    {/* Render input summaries */}
+                    <text x="12" y="44" fill="var(--text-secondary)" fontSize="10" fontFamily="sans-serif">
+                      Type: {node.type}
+                    </text>
+                    
+                    {node.inputs && node.inputs.seed && (
+                      <text x="12" y="60" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">
+                        Seed: {String(node.inputs.seed).substr(0, 12)}...
+                      </text>
+                    )}
+                    {node.inputs && node.inputs.ckpt_name && (
+                      <text x="12" y="60" fill="var(--text-muted)" fontSize="9" fontFamily="monospace" width="160">
+                        Model: {String(node.inputs.ckpt_name).substr(0, 20)}
+                      </text>
+                    )}
+                  </g>
+                ))}
+              </svg>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* X/Y Plot Matrix Overlay View */}
       {showMatrixOverlay && (
         <div className="modal-backdrop matrix-viewer-backdrop" onClick={() => { if (!matrixLoading) setShowMatrixOverlay(false); }}>
@@ -1411,6 +1841,130 @@ export const ImageStudio: React.FC = () => {
         </div>
       )}
 
+      {/* HTML5 Image Editor Canvas Modal Overlay */}
+      {showCanvasEditor && canvasImageItem && (
+        <div className="modal-backdrop canvas-editor-backdrop">
+          <div className="modal-content canvas-editor-content glass-panel" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowCanvasEditor(false)}><X size={20} /></button>
+            
+            <div className="canvas-editor-header border-bottom">
+              <h3>Image Studio Canvas Editor</h3>
+              <p>Draw, paint transparent inpaint masks, and adjust color/tone filters.</p>
+            </div>
+
+            <div className="canvas-editor-layout">
+              {/* Toolbar */}
+              <div className="canvas-toolbar border-right">
+                <div className="tool-section">
+                  <span className="tool-section-title">Draw Tools</span>
+                  <div className="btn-stack">
+                    <button 
+                      className={`btn ${canvasTool === 'brush' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setCanvasTool('brush')}
+                    >
+                      <Brush size={14} /> Brush
+                    </button>
+                    <button 
+                      className={`btn ${canvasTool === 'mask' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setCanvasTool('mask')}
+                    >
+                      <Edit size={14} style={{ color: '#ef4444' }} /> Inpaint Mask
+                    </button>
+                    <button 
+                      className={`btn ${canvasTool === 'eraser' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setCanvasTool('eraser')}
+                    >
+                      <Trash2 size={14} /> Eraser
+                    </button>
+                  </div>
+                </div>
+
+                {canvasTool === 'brush' && (
+                  <div className="tool-section">
+                    <span className="tool-section-title">Color Picker</span>
+                    <input 
+                      type="color" 
+                      value={brushColor} 
+                      onChange={(e) => setBrushColor(e.target.value)}
+                      className="canvas-color-input"
+                    />
+                  </div>
+                )}
+
+                <div className="tool-section">
+                  <span className="tool-section-title">Brush Size: {brushSize}px</span>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="50" 
+                    value={brushSize} 
+                    onChange={(e) => setBrushSize(Number(e.target.value))} 
+                  />
+                </div>
+
+                {/* Filters */}
+                <div className="tool-section border-top" style={{ paddingTop: '12px' }}>
+                  <span className="tool-section-title">Adjust Filters</span>
+                  <div className="filter-sliders-list">
+                    <div className="filter-slider-item">
+                      <label>Brightness: <span>{brightness}%</span></label>
+                      <input type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} />
+                    </div>
+                    <div className="filter-slider-item">
+                      <label>Contrast: <span>{contrast}%</span></label>
+                      <input type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(Number(e.target.value))} />
+                    </div>
+                    <div className="filter-slider-item">
+                      <label>Saturation: <span>{saturate}%</span></label>
+                      <input type="range" min="50" max="150" value={saturate} onChange={(e) => setSaturate(Number(e.target.value))} />
+                    </div>
+                    <div className="filter-slider-item">
+                      <label>Blur: <span>{blur}px</span></label>
+                      <input type="range" min="0" max="10" value={blur} onChange={(e) => setBlur(Number(e.target.value))} />
+                    </div>
+                  </div>
+                  <button className="btn btn-secondary btn-small" onClick={handleResetFilters} style={{ marginTop: '8px', width: '100%' }}>Reset Filters</button>
+                </div>
+
+                <div className="tool-section border-top canvas-export-group" style={{ paddingTop: '12px', marginTop: 'auto' }}>
+                  <button className="btn btn-secondary btn-small" onClick={handleDownloadInpaintMask} style={{ width: '100%', marginBottom: '8px' }}>
+                    <Download size={12} /> Download Mask
+                  </button>
+                  <button className="btn btn-secondary btn-small" onClick={handleUseCanvasAsImg2Img} style={{ width: '100%', marginBottom: '8px' }}>
+                    Use as img2img target
+                  </button>
+                  <button className="btn btn-primary btn-small" onClick={handleSaveCanvasEdited} disabled={isLoading} style={{ width: '100%' }}>
+                    {isLoading ? <Loader2 className="spinning" size={12} /> : <Save size={12} />} Save As New Image
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawing Area */}
+              <div className="canvas-work-area">
+                <div className="canvas-container-relative">
+                  <canvas 
+                    ref={mainCanvasRef} 
+                    className="main-draw-canvas"
+                    onMouseDown={handleDrawingStart}
+                    onMouseMove={handleDrawingMove}
+                    onMouseUp={handleDrawingEnd}
+                    onMouseLeave={handleDrawingEnd}
+                  />
+                  <canvas 
+                    ref={maskCanvasRef} 
+                    className="mask-draw-canvas"
+                    onMouseDown={handleDrawingStart}
+                    onMouseMove={handleDrawingMove}
+                    onMouseUp={handleDrawingEnd}
+                    onMouseLeave={handleDrawingEnd}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Selected Image Detail Overlay Modal */}
       {selectedImage && (
         <div className="modal-backdrop" onClick={() => setSelectedImage(null)}>
@@ -1428,6 +1982,20 @@ export const ImageStudio: React.FC = () => {
                   >
                     <Download size={14} /> Download Image
                   </a>
+                  <button 
+                    className="btn btn-secondary btn-small"
+                    onClick={() => {
+                      setCanvasImageItem(selectedImage);
+                      setBrightness(100);
+                      setContrast(100);
+                      setSaturate(100);
+                      setBlur(0);
+                      setShowCanvasEditor(true);
+                      setSelectedImage(null);
+                    }}
+                  >
+                    <Edit size={14} /> Edit in Canvas
+                  </button>
                 </div>
               </div>
               

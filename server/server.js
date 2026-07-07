@@ -3100,6 +3100,51 @@ app.delete('/api/image-studio/gallery/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// 5.5. Save edited canvas image
+app.post('/api/image-studio/gallery/save-edited', (req, res) => {
+  try {
+    const { imageData, promptName, positivePrompt, negativePrompt, checkpoint, width, height, steps, cfg, sampler, scheduler, seed } = req.body;
+    if (!imageData) {
+      return res.status(400).json({ error: 'Missing image data' });
+    }
+    
+    const matches = imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ error: 'Invalid image format' });
+    }
+    const ext = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    const localFilename = `edited_${Date.now()}.${ext}`;
+    const localPath = path.join(IMAGES_DIR, localFilename);
+    fs.writeFileSync(localPath, buffer);
+    
+    const gallery = db.getImageGallery();
+    const newItem = {
+      id: `img_gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      promptId: null,
+      promptName: promptName || 'Edited Canvas',
+      positivePrompt: positivePrompt || '',
+      negativePrompt: negativePrompt || '',
+      checkpoint: checkpoint || '',
+      width: Number(width || 512),
+      height: Number(height || 512),
+      steps: Number(steps || 20),
+      cfg: Number(cfg || 8),
+      sampler: sampler || 'euler',
+      scheduler: scheduler || 'normal',
+      seed: Number(seed || -1),
+      imagePath: `/data/images/${localFilename}`,
+      createdAt: new Date().toISOString()
+    };
+    
+    gallery.unshift(newItem);
+    db.saveImageGallery(gallery);
+    res.json(newItem);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 6. Get checkpoints from ComfyUI
 app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
   let comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
