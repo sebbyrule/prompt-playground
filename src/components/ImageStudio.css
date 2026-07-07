@@ -460,16 +460,67 @@
   accent-color: var(--accent-primary);
 }
 
-/* Right Pane: Gallery Header with PNG Info */
+/* X/Y Plot sidebar control */
+.xy-plot-config {
+  display: flex;
+  flex-direction: column;
+}
+
+.xy-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.xy-config-form .form-group {
+  margin-bottom: 6px;
+}
+
+/* Gallery Right Header with tab layouts */
 .gallery-header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
 }
 
-.gallery-header-row .section-title {
-  margin-bottom: 0;
+.tab-buttons-container {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  background: var(--bg-primary);
+  color: var(--accent-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
 .png-info-selector label {
@@ -541,6 +592,289 @@
 
 .btn-load-png {
   align-self: flex-start;
+}
+
+/* Wildcards tab layout */
+.wildcards-tab-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.wildcards-grid-layout {
+  display: flex;
+  width: 100%;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.wildcards-sidebar {
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  padding-right: 16px;
+}
+
+.wildcards-sidebar.border-right {
+  border-right: 1px solid var(--border-color);
+}
+
+.wildcard-items-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.wildcard-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.wildcard-item span {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.wildcard-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--text-secondary);
+}
+
+.wildcard-item.active {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: var(--accent-primary);
+}
+
+.wildcard-item.active span {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.wildcards-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  min-height: 0;
+}
+
+.wildcard-text-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.wildcard-text-editor .editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.wildcard-text-editor h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.wildcard-textarea-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+}
+
+.wildcard-textarea-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.editor-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+}
+
+/* X/Y Matrix Full screen viewer overlay */
+.matrix-viewer-backdrop {
+  z-index: 1100;
+}
+
+.matrix-viewer-content {
+  max-width: 95vw !important;
+  width: 95vw !important;
+  max-height: 90vh !important;
+  height: 90vh !important;
+}
+
+.matrix-viewer-header {
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.matrix-viewer-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.matrix-viewer-header p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+.matrix-progress {
+  min-width: 250px;
+  padding: 6px 12px;
+}
+
+.matrix-scroll-wrapper {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.matrix-table {
+  border-collapse: collapse;
+  margin: 0 auto;
+}
+
+.matrix-table th, 
+.matrix-table td {
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  text-align: center;
+}
+
+.corner-hdr {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  min-width: 100px;
+}
+
+.axis-hdr {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.axis-hdr.x-hdr {
+  min-width: 160px;
+  max-width: 260px;
+}
+
+.axis-hdr.y-hdr {
+  min-width: 100px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+}
+
+.matrix-cell {
+  background: rgba(0, 0, 0, 0.1);
+  min-width: 160px;
+  max-width: 260px;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  padding: 4px !important;
+}
+
+.cell-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
+.cell-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #ef4444;
+  font-size: 12px;
+  min-height: 150px;
+  padding: 10px;
+}
+
+.cell-error span {
+  text-decoration: underline;
+  cursor: help;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.cell-image-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 4px;
+  transition: transform 0.2s;
+}
+
+.cell-image-wrapper:hover {
+  transform: scale(1.02);
+}
+
+.cell-image-wrapper img {
+  width: 100%;
+  height: auto;
+  max-height: 250px;
+  object-fit: contain;
+  display: block;
+}
+
+.cell-overlay-tag {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 /* Gallery main contents */

@@ -14,7 +14,9 @@ import {
   Image as ImageIcon,
   Plus,
   ArrowRight,
-  Info
+  Info,
+  Grid,
+  Edit3
 } from 'lucide-react';
 
 interface ImagePrompt {
@@ -55,10 +57,14 @@ interface GalleryItem {
   createdAt: string;
 }
 
+interface WildcardFile {
+  name: string;
+  content: string;
+}
+
 // PNG Chunk Parser for extracting ComfyUI parameters
 function parsePngMetadata(arrayBuffer: ArrayBuffer): { prompt?: any; workflow?: any } {
   const view = new DataView(arrayBuffer);
-  // Check PNG signature
   if (view.getUint32(0) !== 0x89504E47 || view.getUint32(4) !== 0x0D0A1A0A) {
     throw new Error('Not a valid PNG image');
   }
@@ -108,7 +114,6 @@ function parsePngMetadata(arrayBuffer: ArrayBuffer): { prompt?: any; workflow?: 
 function extractParamsFromComfyPrompt(promptObj: any) {
   const params: any = {};
   
-  // Find KSampler node
   let samplerNode: any = null;
   for (const id in promptObj) {
     if (promptObj[id].class_type === 'KSampler') {
@@ -157,7 +162,6 @@ function extractParamsFromComfyPrompt(promptObj: any) {
     if (modelLink && Array.isArray(modelLink)) {
       let modelNodeId = modelLink[0];
       let modelNode = promptObj[modelNodeId];
-      // Walk back through LoRAs
       while (modelNode && modelNode.class_type === 'LoraLoader') {
         const nextModelLink = modelNode.inputs.model;
         if (nextModelLink && Array.isArray(nextModelLink)) {
@@ -223,6 +227,26 @@ export const ImageStudio: React.FC = () => {
   const [pngInfoParams, setPngInfoParams] = useState<any | null>(null);
   const [pngInfoFilename, setPngInfoFilename] = useState<string>('');
 
+  // Tab views state (Gallery vs Wildcards)
+  const [galleryTab, setGalleryTab] = useState<'gallery' | 'wildcards'>('gallery');
+
+  // Wildcards state
+  const [wildcards, setWildcards] = useState<WildcardFile[]>([]);
+  const [activeWildcard, setActiveWildcard] = useState<WildcardFile | null>(null);
+  const [newWildcardName, setNewWildcardName] = useState<string>('');
+  const [isEditingWildcard, setIsEditingWildcard] = useState<boolean>(false);
+
+  // X/Y Plot Matrix state
+  const [enableXyPlot, setEnableXyPlot] = useState<boolean>(false);
+  const [xAxisParam, setXAxisParam] = useState<string>('cfg');
+  const [xAxisValues, setXAxisValues] = useState<string>('6, 8, 10');
+  const [yAxisParam, setYAxisParam] = useState<string>('steps');
+  const [yAxisValues, setYAxisValues] = useState<string>('15, 25');
+  const [matrixResults, setMatrixResults] = useState<any[][]>([]);
+  const [matrixLoading, setMatrixLoading] = useState<boolean>(false);
+  const [matrixProgress, setMatrixProgress] = useState<string>('');
+  const [showMatrixOverlay, setShowMatrixOverlay] = useState<boolean>(false);
+
   // Gallery state
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [selectedImage, setSelectedImage] = useState<GalleryItem | null>(null);
@@ -247,6 +271,7 @@ export const ImageStudio: React.FC = () => {
     fetchGallery();
     fetchCheckpoints();
     fetchLoras();
+    fetchWildcards();
   }, []);
 
   const showStatus = (text: string, type: 'success' | 'error' | 'info' = 'info', duration = 3000) => {
@@ -295,6 +320,15 @@ export const ImageStudio: React.FC = () => {
       setLorasList(data);
     } catch (err: any) {
       console.warn('Could not retrieve comfy loras:', err.message);
+    }
+  };
+
+  const fetchWildcards = async () => {
+    try {
+      const data = await api.get('/api/image-studio/wildcards');
+      setWildcards(data);
+    } catch (err: any) {
+      console.warn('Could not retrieve wildcards list:', err.message);
     }
   };
 
@@ -588,6 +622,163 @@ export const ImageStudio: React.FC = () => {
     showStatus('Loaded PNG parameters into active editor!', 'success');
   };
 
+  // Wildcards Management Handlers
+  const handleSaveWildcard = async () => {
+    if (!activeWildcard) return;
+    try {
+      await api.post(`/api/image-studio/wildcards/${activeWildcard.name}`, { content: activeWildcard.content });
+      showStatus(`Wildcard __${activeWildcard.name}__ updated successfully!`, 'success');
+      await fetchWildcards();
+      setIsEditingWildcard(false);
+    } catch (err: any) {
+      showStatus('Failed to update wildcard: ' + err.message, 'error');
+    }
+  };
+
+  const handleCreateWildcard = async () => {
+    const name = newWildcardName.trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+    if (!name) {
+      showStatus('Invalid name. Use alphanumeric characters only.', 'error');
+      return;
+    }
+    try {
+      await api.post(`/api/image-studio/wildcards/${name}`, { content: '' });
+      setNewWildcardName('');
+      showStatus(`Wildcard __${name}__ created!`, 'success');
+      await fetchWildcards();
+      setActiveWildcard({ name, content: '' });
+      setIsEditingWildcard(true);
+    } catch (err: any) {
+      showStatus('Failed to create wildcard: ' + err.message, 'error');
+    }
+  };
+
+  const handleDeleteWildcard = async (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete __${name}__?`)) return;
+    try {
+      await api.delete(`/api/image-studio/wildcards/${name}`);
+      showStatus(`Wildcard __${name}__ deleted.`, 'success');
+      await fetchWildcards();
+      if (activeWildcard?.name === name) {
+        setActiveWildcard(null);
+        setIsEditingWildcard(false);
+      }
+    } catch (err: any) {
+      showStatus('Failed to delete wildcard: ' + err.message, 'error');
+    }
+  };
+
+  // X/Y Plot generation runner
+  const handleGenerateMatrix = async () => {
+    const xVals = xAxisValues.split(',').map(v => v.trim()).filter(Boolean);
+    const yVals = yAxisParam === 'none' ? [''] : yAxisValues.split(',').map(v => v.trim()).filter(Boolean);
+    
+    if (xVals.length === 0) {
+      showStatus('X-axis values cannot be empty.', 'error');
+      return;
+    }
+    if (yAxisParam !== 'none' && yVals.length === 0) {
+      showStatus('Y-axis values cannot be empty.', 'error');
+      return;
+    }
+
+    setMatrixLoading(true);
+    setShowMatrixOverlay(true);
+    setMatrixProgress(`Initializing matrix (0/${xVals.length * yVals.length})...`);
+    
+    const grid: any[][] = [];
+    for (let y = 0; y < yVals.length; y++) {
+      grid[y] = [];
+      for (let x = 0; x < xVals.length; x++) {
+        grid[y][x] = {
+          xVal: xVals[x],
+          yVal: yVals[y],
+          imagePath: '',
+          loading: true,
+          error: null
+        };
+      }
+    }
+    setMatrixResults(grid);
+
+    let completed = 0;
+    const total = xVals.length * yVals.length;
+
+    for (let y = 0; y < yVals.length; y++) {
+      for (let x = 0; x < xVals.length; x++) {
+        const xVal = xVals[x];
+        const yVal = yVals[y];
+        setMatrixProgress(`Generating combination ${completed + 1} of ${total}: [X=${xVal}, Y=${yVal || 'N/A'}]...`);
+
+        const activeParams = {
+          positivePrompt,
+          negativePrompt,
+          checkpoint: checkpoint || checkpointsList[0],
+          width,
+          height,
+          steps,
+          cfg,
+          sampler,
+          scheduler,
+          seed: randomizeSeed ? Math.floor(Math.random() * 1000000000) : seed,
+          loras,
+          initialImage: initialImage || undefined,
+          denoise: initialImage ? denoise : undefined
+        };
+
+        const applyOverride = (param: string, value: string) => {
+          if (param === 'checkpoint') activeParams.checkpoint = value;
+          else if (param === 'steps') activeParams.steps = Number(value);
+          else if (param === 'cfg') activeParams.cfg = Number(value);
+          else if (param === 'sampler') activeParams.sampler = value;
+          else if (param === 'seed') {
+            activeParams.seed = Number(value);
+          }
+          else if (param === 'positive_prompt') activeParams.positivePrompt = value;
+        };
+
+        applyOverride(xAxisParam, xVal);
+        if (yAxisParam !== 'none') {
+          applyOverride(yAxisParam, yVal);
+        }
+
+        try {
+          const res = await api.post('/api/image-studio/generate', activeParams);
+          if (res.items && res.items.length > 0) {
+            grid[y][x] = {
+              xVal,
+              yVal,
+              imagePath: res.items[0].imagePath,
+              loading: false,
+              error: null,
+              seed: res.items[0].seed,
+              item: res.items[0]
+            };
+          } else {
+            throw new Error('ComfyUI returned no output image');
+          }
+        } catch (err: any) {
+          grid[y][x] = {
+            xVal,
+            yVal,
+            imagePath: '',
+            loading: false,
+            error: err.message
+          };
+        }
+
+        setMatrixResults([...grid]);
+        completed++;
+        setMatrixProgress(`Generating combination ${completed} of ${total}...`);
+      }
+    }
+
+    setMatrixLoading(false);
+    showStatus('Matrix generated successfully!', 'success');
+    fetchGallery();
+  };
+
   return (
     <div className="image-studio-container fade-in">
       <div className="image-studio-header">
@@ -676,6 +867,7 @@ export const ImageStudio: React.FC = () => {
                 value={positivePrompt}
                 onChange={(e) => setPositivePrompt(e.target.value)}
               />
+              <small className="help-text">Use wildcards like `__clothing__` or `__style__` to pick random choices.</small>
             </div>
 
             {/* Negative Prompt */}
@@ -728,7 +920,7 @@ export const ImageStudio: React.FC = () => {
               )}
             </div>
 
-            {/* Aspect Ratio Snapper */}
+            {/* Aspect Ratio Presets */}
             <div className="form-group">
               <label>Aspect Ratio Presets</label>
               <div className="ratio-presets">
@@ -796,6 +988,68 @@ export const ImageStudio: React.FC = () => {
               )}
             </div>
 
+            {/* X/Y Plot Configurator Section */}
+            <div className="form-group border-panel xy-plot-config">
+              <div className="toggle-row">
+                <input 
+                  type="checkbox" 
+                  id="enable-xy" 
+                  checked={enableXyPlot}
+                  onChange={(e) => setEnableXyPlot(e.target.checked)}
+                />
+                <label htmlFor="enable-xy"><Grid size={14} style={{ marginRight: '4px' }} /> Enable X/Y Plot Grid Matrix</label>
+              </div>
+
+              {enableXyPlot && (
+                <div className="xy-config-form fade-in" style={{ marginTop: '10px' }}>
+                  <div className="form-group">
+                    <label>X-Axis Parameter</label>
+                    <select value={xAxisParam} onChange={(e) => setXAxisParam(e.target.value)}>
+                      <option value="cfg">CFG Scale</option>
+                      <option value="steps">Steps</option>
+                      <option value="checkpoint">Checkpoint</option>
+                      <option value="sampler">Sampler</option>
+                      <option value="seed">Seed</option>
+                      <option value="positive_prompt">Positive Prompt</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>X-Axis Values (comma separated)</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 6, 8, 10" 
+                      value={xAxisValues} 
+                      onChange={(e) => setXAxisValues(e.target.value)} 
+                    />
+                  </div>
+
+                  <div className="form-group border-top" style={{ paddingTop: '10px', marginTop: '6px' }}>
+                    <label>Y-Axis Parameter</label>
+                    <select value={yAxisParam} onChange={(e) => setYAxisParam(e.target.value)}>
+                      <option value="none">-- None (1D Plot) --</option>
+                      <option value="cfg">CFG Scale</option>
+                      <option value="steps">Steps</option>
+                      <option value="checkpoint">Checkpoint</option>
+                      <option value="sampler">Sampler</option>
+                      <option value="seed">Seed</option>
+                      <option value="positive_prompt">Positive Prompt</option>
+                    </select>
+                  </div>
+                  {yAxisParam !== 'none' && (
+                    <div className="form-group">
+                      <label>Y-Axis Values (comma separated)</label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. 15, 25" 
+                        value={yAxisValues} 
+                        onChange={(e) => setYAxisValues(e.target.value)} 
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Custom Workflow Toggle */}
             <div className="form-group toggle-row" style={{ marginTop: '16px' }}>
               <input 
@@ -821,56 +1075,62 @@ export const ImageStudio: React.FC = () => {
             ) : (
               <>
                 {/* Sampling Settings */}
-                <div className="form-row flex-gap">
-                  <div className="form-group flex-1">
-                    <label>Steps</label>
-                    <input type="number" min={1} max={150} value={steps} onChange={(e) => setSteps(Number(e.target.value))} />
-                  </div>
-                  <div className="form-group flex-1">
-                    <label>CFG Scale</label>
-                    <input type="number" min={1} max={30} step={0.5} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} />
-                  </div>
-                </div>
+                {!enableXyPlot && (
+                  <>
+                    <div className="form-row flex-gap">
+                      <div className="form-group flex-1">
+                        <label>Steps</label>
+                        <input type="number" min={1} max={150} value={steps} onChange={(e) => setSteps(Number(e.target.value))} />
+                      </div>
+                      <div className="form-group flex-1">
+                        <label>CFG Scale</label>
+                        <input type="number" min={1} max={30} step={0.5} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} />
+                      </div>
+                    </div>
 
-                <div className="form-row flex-gap">
-                  <div className="form-group flex-1">
-                    <label>Sampler</label>
-                    <select value={sampler} onChange={(e) => setSampler(e.target.value)}>
-                      {samplers.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group flex-1">
-                    <label>Scheduler</label>
-                    <select value={scheduler} onChange={(e) => setScheduler(e.target.value)}>
-                      {schedulers.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                </div>
+                    <div className="form-row flex-gap">
+                      <div className="form-group flex-1">
+                        <label>Sampler</label>
+                        <select value={sampler} onChange={(e) => setSampler(e.target.value)}>
+                          {samplers.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group flex-1">
+                        <label>Scheduler</label>
+                        <select value={scheduler} onChange={(e) => setScheduler(e.target.value)}>
+                          {schedulers.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
 
             {/* Seed */}
-            <div className="form-row flex-gap align-center" style={{ marginTop: '10px' }}>
-              <div className="form-group flex-1">
-                <label>Seed</label>
-                <input 
-                  type="number" 
-                  disabled={randomizeSeed} 
-                  placeholder="Random seed..."
-                  value={seed === -1 ? '' : seed}
-                  onChange={(e) => setSeed(Number(e.target.value))}
-                />
+            {!enableXyPlot && (
+              <div className="form-row flex-gap align-center" style={{ marginTop: '10px' }}>
+                <div className="form-group flex-1">
+                  <label>Seed</label>
+                  <input 
+                    type="number" 
+                    disabled={randomizeSeed} 
+                    placeholder="Random seed..."
+                    value={seed === -1 ? '' : seed}
+                    onChange={(e) => setSeed(Number(e.target.value))}
+                  />
+                </div>
+                <div className="form-group toggle-row" style={{ marginTop: '20px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="randomize" 
+                    checked={randomizeSeed}
+                    onChange={(e) => setRandomizeSeed(e.target.checked)}
+                  />
+                  <label htmlFor="randomize">Randomize</label>
+                </div>
               </div>
-              <div className="form-group toggle-row" style={{ marginTop: '20px' }}>
-                <input 
-                  type="checkbox" 
-                  id="randomize" 
-                  checked={randomizeSeed}
-                  onChange={(e) => setRandomizeSeed(e.target.checked)}
-                />
-                <label htmlFor="randomize">Randomize</label>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Action Row */}
@@ -882,98 +1142,274 @@ export const ImageStudio: React.FC = () => {
               </div>
             )}
             
-            <button 
-              className="btn btn-primary btn-generate" 
-              onClick={handleGenerate}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="spinning" size={18} />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Play size={18} />
-                  Generate Image
-                </>
-              )}
-            </button>
+            {enableXyPlot ? (
+              <button 
+                className="btn btn-primary btn-generate" 
+                onClick={handleGenerateMatrix}
+                disabled={matrixLoading}
+              >
+                {matrixLoading ? (
+                  <>
+                    <Loader2 className="spinning" size={18} />
+                    Running Matrix...
+                  </>
+                ) : (
+                  <>
+                    <Grid size={18} />
+                    Generate X/Y Matrix
+                  </>
+                )}
+              </button>
+            ) : (
+              <button 
+                className="btn btn-primary btn-generate" 
+                onClick={handleGenerate}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="spinning" size={18} />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Play size={18} />
+                    Generate Image
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Right Side: Gallery & PNG info drops */}
+        {/* Right Side: Tab switcher for Gallery vs Wildcard Manager */}
         <div className="gallery-pane glass-panel">
           <div className="gallery-header-row">
-            <h3 className="section-title"><ImageIcon size={16} /> Image Gallery ({gallery.length})</h3>
-            
-            {/* PNG Info Dropzone */}
-            <div className="png-info-selector">
-              <label className="btn btn-secondary btn-small" htmlFor="png-info-upload">
-                <Info size={12} style={{ marginRight: '4px' }} /> Inspect PNG Metadata
-              </label>
-              <input 
-                type="file" 
-                id="png-info-upload"
-                accept="image/png"
-                style={{ display: 'none' }}
-                onChange={handlePngFileSelect}
-              />
+            <div className="tab-buttons-container">
+              <button 
+                className={`tab-btn ${galleryTab === 'gallery' ? 'active' : ''}`}
+                onClick={() => setGalleryTab('gallery')}
+              >
+                <ImageIcon size={14} /> Gallery ({gallery.length})
+              </button>
+              <button 
+                className={`tab-btn ${galleryTab === 'wildcards' ? 'active' : ''}`}
+                onClick={() => setGalleryTab('wildcards')}
+              >
+                <Edit3 size={14} /> Wildcards ({wildcards.length})
+              </button>
             </div>
+            
+            {galleryTab === 'gallery' && (
+              <div className="png-info-selector">
+                <label className="btn btn-secondary btn-small" htmlFor="png-info-upload">
+                  <Info size={12} style={{ marginRight: '4px' }} /> Inspect PNG Metadata
+                </label>
+                <input 
+                  type="file" 
+                  id="png-info-upload"
+                  accept="image/png"
+                  style={{ display: 'none' }}
+                  onChange={handlePngFileSelect}
+                />
+              </div>
+            )}
           </div>
 
-          {/* Render PNG Info metadata card if parsed */}
-          {pngInfoParams && (
-            <div className="png-info-result-card border-panel fade-in">
-              <div className="card-header">
-                <h4><Info size={14} /> PNG Metadata: <span>{pngInfoFilename}</span></h4>
-                <button className="btn btn-icon" onClick={() => setPngInfoParams(null)}><X size={14} /></button>
-              </div>
-              <div className="card-body">
-                <div className="metadata-scroll">
-                  <p><strong>Positive:</strong> {pngInfoParams.positivePrompt || '(None)'}</p>
-                  <p><strong>Negative:</strong> {pngInfoParams.negativePrompt || '(None)'}</p>
-                  <p><strong>Model:</strong> {pngInfoParams.checkpoint || '(Unknown)'}</p>
-                  <p><strong>Config:</strong> Seed: {pngInfoParams.seed}, Steps: {pngInfoParams.steps}, CFG: {pngInfoParams.cfg}, Sampler: {pngInfoParams.sampler}, Scheduler: {pngInfoParams.scheduler}, Size: {pngInfoParams.width}x{pngInfoParams.height}</p>
-                </div>
-                <button className="btn btn-primary btn-small btn-load-png" onClick={handleLoadPngInfoParams}>
-                  <ArrowRight size={12} /> Load Metadata to Editor
-                </button>
-              </div>
-            </div>
-          )}
-
-          {gallery.length === 0 ? (
-            <div className="empty-gallery">
-              <ImageIcon size={48} className="empty-icon" />
-              <h4>No Generated Images</h4>
-              <p>When you click "Generate Image", the output will be fetched from ComfyUI and saved persistently here.</p>
-            </div>
-          ) : (
-            <div className="gallery-grid">
-              {gallery.map(item => (
-                <div 
-                  key={item.id} 
-                  className="gallery-card"
-                  onClick={() => setSelectedImage(item)}
-                >
-                  <img src={item.imagePath} alt={item.promptName} loading="lazy" />
-                  <div className="card-overlay">
-                    <span className="card-title">{item.promptName}</span>
-                    <button 
-                      className="btn-delete-card" 
-                      onClick={(e) => handleDeleteGalleryItem(item.id, e)}
-                      title="Delete image"
-                    >
-                      <Trash2 size={14} />
+          {galleryTab === 'gallery' ? (
+            <>
+              {/* PNG Info details card */}
+              {pngInfoParams && (
+                <div className="png-info-result-card border-panel fade-in">
+                  <div className="card-header">
+                    <h4><Info size={14} /> PNG Metadata: <span>{pngInfoFilename}</span></h4>
+                    <button className="btn btn-icon" onClick={() => setPngInfoParams(null)}><X size={14} /></button>
+                  </div>
+                  <div className="card-body">
+                    <div className="metadata-scroll">
+                      <p><strong>Positive:</strong> {pngInfoParams.positivePrompt || '(None)'}</p>
+                      <p><strong>Negative:</strong> {pngInfoParams.negativePrompt || '(None)'}</p>
+                      <p><strong>Model:</strong> {pngInfoParams.checkpoint || '(Unknown)'}</p>
+                      <p><strong>Config:</strong> Seed: {pngInfoParams.seed}, Steps: {pngInfoParams.steps}, CFG: {pngInfoParams.cfg}, Sampler: {pngInfoParams.sampler}, Scheduler: {pngInfoParams.scheduler}, Size: {pngInfoParams.width}x{pngInfoParams.height}</p>
+                    </div>
+                    <button className="btn btn-primary btn-small btn-load-png" onClick={handleLoadPngInfoParams}>
+                      <ArrowRight size={12} /> Load Metadata to Editor
                     </button>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {gallery.length === 0 ? (
+                <div className="empty-gallery">
+                  <ImageIcon size={48} className="empty-icon" />
+                  <h4>No Generated Images</h4>
+                  <p>When you click "Generate Image", the output will be fetched from ComfyUI and saved persistently here.</p>
+                </div>
+              ) : (
+                <div className="gallery-grid">
+                  {gallery.map(item => (
+                    <div 
+                      key={item.id} 
+                      className="gallery-card"
+                      onClick={() => setSelectedImage(item)}
+                    >
+                      <img src={item.imagePath} alt={item.promptName} loading="lazy" />
+                      <div className="card-overlay">
+                        <span className="card-title">{item.promptName}</span>
+                        <button 
+                          className="btn-delete-card" 
+                          onClick={(e) => handleDeleteGalleryItem(item.id, e)}
+                          title="Delete image"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            // Wildcard Manager Workspace
+            <div className="wildcards-tab-container fade-in">
+              <div className="wildcards-grid-layout">
+                {/* Wildcard Files List */}
+                <div className="wildcards-sidebar border-right">
+                  <div className="form-row flex-gap align-end" style={{ marginBottom: '16px' }}>
+                    <div className="form-group flex-1" style={{ marginBottom: 0 }}>
+                      <label>Create New Wildcard</label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. clothing"
+                        value={newWildcardName}
+                        onChange={(e) => setNewWildcardName(e.target.value)}
+                      />
+                    </div>
+                    <button className="btn btn-secondary btn-small" onClick={handleCreateWildcard}>
+                      <Plus size={14} /> Create
+                    </button>
+                  </div>
+
+                  <div className="wildcard-items-list">
+                    {wildcards.length === 0 && <div className="loader-row">No wildcards created yet.</div>}
+                    {wildcards.map(w => (
+                      <div 
+                        key={w.name}
+                        className={`wildcard-item ${activeWildcard?.name === w.name ? 'active' : ''}`}
+                        onClick={() => {
+                          setActiveWildcard(w);
+                          setIsEditingWildcard(true);
+                        }}
+                      >
+                        <span>__{w.name}__</span>
+                        <button className="btn-delete-card" onClick={(e) => handleDeleteWildcard(w.name, e)}>
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Wildcard Editor Pane */}
+                <div className="wildcards-editor-pane">
+                  {isEditingWildcard && activeWildcard ? (
+                    <div className="wildcard-text-editor fade-in">
+                      <div className="editor-header">
+                        <h4>Editing: __{activeWildcard.name}__</h4>
+                        <div className="flex-gap">
+                          <button className="btn btn-secondary btn-small" onClick={() => setIsEditingWildcard(false)}>Cancel</button>
+                          <button className="btn btn-primary btn-small" onClick={handleSaveWildcard}>Save Changes</button>
+                        </div>
+                      </div>
+                      <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        Enter choice items (one item per line). Lines starting with `#` are ignored.
+                      </label>
+                      <textarea 
+                        className="wildcard-textarea-input"
+                        placeholder="red shirt&#10;blue dress&#10;green jacket"
+                        value={activeWildcard.content}
+                        onChange={(e) => setActiveWildcard({ ...activeWildcard, content: e.target.value })}
+                      />
+                    </div>
+                  ) : (
+                    <div className="editor-placeholder">
+                      <Edit3 size={48} className="empty-icon" />
+                      <h4>Wildcard Library</h4>
+                      <p>Select a wildcard file from the sidebar list to edit its options, or create a new one. Reference them in prompts as `__filename__`.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* X/Y Plot Matrix Overlay View */}
+      {showMatrixOverlay && (
+        <div className="modal-backdrop matrix-viewer-backdrop" onClick={() => { if (!matrixLoading) setShowMatrixOverlay(false); }}>
+          <div className="modal-content matrix-viewer-content glass-panel" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowMatrixOverlay(false)} disabled={matrixLoading}><X size={20} /></button>
+            
+            <div className="matrix-viewer-header border-bottom">
+              <h3>X/Y Plot Grid Matrix</h3>
+              <p>
+                X-Axis: <strong>{xAxisParam}</strong> ({xAxisValues}) | Y-Axis: <strong>{yAxisParam}</strong> ({yAxisParam === 'none' ? 'None' : yAxisValues})
+              </p>
+              {matrixLoading && (
+                <div className="progress-banner matrix-progress">
+                  <Loader2 className="spinning" size={16} />
+                  <span>{matrixProgress}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="matrix-scroll-wrapper">
+              <table className="matrix-table">
+                <thead>
+                  <tr>
+                    <th className="corner-hdr">Y \ X</th>
+                    {xAxisValues.split(',').map(v => v.trim()).filter(Boolean).map(xVal => (
+                      <th key={xVal} className="axis-hdr x-hdr">{xVal}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrixResults.map((row, yIdx) => {
+                    const yVal = row[0]?.yVal || '';
+                    return (
+                      <tr key={yIdx}>
+                        <td className="axis-hdr y-hdr">{yVal || 'N/A'}</td>
+                        {row.map((cell, xIdx) => (
+                          <td key={xIdx} className="matrix-cell">
+                            {cell.loading ? (
+                              <div className="cell-loader">
+                                <Loader2 className="spinning" size={24} />
+                              </div>
+                            ) : cell.error ? (
+                              <div className="cell-error">
+                                <p>Error</p>
+                                <span title={cell.error}>Details</span>
+                              </div>
+                            ) : (
+                              <div className="cell-image-wrapper" onClick={() => setSelectedImage(cell.item)}>
+                                <img src={cell.imagePath} alt={`X:${cell.xVal} Y:${cell.yVal}`} />
+                                <div className="cell-overlay-tag">
+                                  <span>Seed: {cell.seed}</span>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Selected Image Detail Overlay Modal */}
       {selectedImage && (

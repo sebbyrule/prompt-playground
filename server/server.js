@@ -2770,6 +2770,11 @@ if (!fs.existsSync(IMAGES_DIR)) {
 }
 app.use('/data/images', express.static(IMAGES_DIR));
 
+const WILDCARDS_DIR = path.join(__dirname, '..', 'data', 'wildcards');
+if (!fs.existsSync(WILDCARDS_DIR)) {
+  fs.mkdirSync(WILDCARDS_DIR, { recursive: true });
+}
+
 const DEFAULT_COMFY_WORKFLOW = {
   "3": {
     "inputs": {
@@ -2858,6 +2863,40 @@ async function checkAndResolveComfyUrl(url) {
     // ignore
   }
   return url;
+}
+
+function resolveWildcards(text) {
+  if (!text) return text;
+  const wildcardRegex = /__([a-zA-Z0-9_\-]+)__/g;
+  let resolvedText = text;
+  
+  let attempts = 0;
+  while (attempts < 5) {
+    let replacedAny = false;
+    wildcardRegex.lastIndex = 0;
+    
+    resolvedText = resolvedText.replace(wildcardRegex, (fullMatch, name) => {
+      const filePath = path.join(WILDCARDS_DIR, `${name}.txt`);
+      if (fs.existsSync(filePath)) {
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        const lines = fileContent.split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && !line.startsWith('#'));
+        
+        if (lines.length > 0) {
+          const randomIndex = Math.floor(Math.random() * lines.length);
+          replacedAny = true;
+          return lines[randomIndex];
+        }
+      }
+      return fullMatch;
+    });
+    
+    if (!replacedAny) break;
+    attempts++;
+  }
+  
+  return resolvedText;
 }
 
 async function getComfyUiLoras(comfyUrl) {
@@ -3069,6 +3108,54 @@ app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
   res.json(checkpoints);
 });
 
+// 6.2. Wildcard list manager
+app.get('/api/image-studio/wildcards', (req, res) => {
+  try {
+    if (!fs.existsSync(WILDCARDS_DIR)) {
+      return res.json([]);
+    }
+    const files = fs.readdirSync(WILDCARDS_DIR)
+      .filter(f => f.endsWith('.txt'))
+      .map(f => ({
+        name: f.replace('.txt', ''),
+        content: fs.readFileSync(path.join(WILDCARDS_DIR, f), 'utf-8')
+      }));
+    res.json(files);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/image-studio/wildcards/:name', (req, res) => {
+  try {
+    const { name } = req.params;
+    const { content } = req.body;
+    if (!name || /[^a-zA-Z0-9_\-]/.test(name)) {
+      return res.status(400).json({ error: 'Invalid wildcard name' });
+    }
+    if (!fs.existsSync(WILDCARDS_DIR)) {
+      fs.mkdirSync(WILDCARDS_DIR, { recursive: true });
+    }
+    fs.writeFileSync(path.join(WILDCARDS_DIR, `${name}.txt`), content || '', 'utf-8');
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/image-studio/wildcards/:name', (req, res) => {
+  try {
+    const { name } = req.params;
+    const filePath = path.join(WILDCARDS_DIR, `${name}.txt`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 6.5. Get LoRAs from ComfyUI
 app.get('/api/image-studio/comfy-loras', async (req, res) => {
   let comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
@@ -3084,11 +3171,19 @@ app.post('/api/image-studio/generate', async (req, res) => {
   comfyUrl = await checkAndResolveComfyUrl(comfyUrl);
 
   try {
+    const resolvedPositive = resolveWildcards(params.positivePrompt);
+    const resolvedNegative = resolveWildcards(params.negativePrompt);
+
     let initialImageFilename = null;
     if (params.initialImage) {
       initialImageFilename = await uploadImageToComfy(comfyUrl, params.initialImage);
     }
-    const workflowObj = buildComfyWorkflow({ ...params, initialImageFilename });
+    const workflowObj = buildComfyWorkflow({ 
+      ...params, 
+      positivePrompt: resolvedPositive,
+      negativePrompt: resolvedNegative,
+      initialImageFilename 
+    });
     const promptRes = await fetch(`${comfyUrl}/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3156,8 +3251,8 @@ app.post('/api/image-studio/generate', async (req, res) => {
         id: `img_gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         promptId: params.promptId || null,
         promptName: params.promptName || 'Untitled Prompt',
-        positivePrompt: params.positivePrompt,
-        negativePrompt: params.negativePrompt,
+        positivePrompt: resolvedPositive,
+        negativePrompt: resolvedNegative,
         checkpoint: params.checkpoint,
         width: Number(params.width),
         height: Number(params.height),
