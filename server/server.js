@@ -3209,6 +3209,83 @@ app.get('/api/image-studio/comfy-loras', async (req, res) => {
   res.json(loras);
 });
 
+// 6.7. Image Studio Copilot LLM assistant
+app.post('/api/image-studio/copilot', async (req, res) => {
+  const { taskType, userIdea, artStyle, model } = req.body;
+  const modelName = model || 'gemini-1.5-flash';
+
+  const geminiKey = req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY;
+  const claudeKey = req.headers['x-claude-key'] || process.env.CLAUDE_API_KEY;
+  const openaiKey = req.headers['x-openai-key'] || process.env.OPENAI_API_KEY;
+  const ollamaUrl = resolveLocalUrl(req.headers['x-ollama-url'] || process.env.OLLAMA_URL || 'http://localhost:11434');
+  const lmStudioUrl = resolveLocalUrl(req.headers['x-lmstudio-url'] || process.env.LMSTUDIO_URL || 'http://localhost:1234');
+
+  const isLocal = modelName.startsWith('ollama/') || modelName.startsWith('lmstudio/');
+  const apiKey = modelName.startsWith('gemini') ? geminiKey 
+               : modelName.startsWith('claude') ? claudeKey 
+               : (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) ? openaiKey
+               : '';
+
+  if (!isLocal && !apiKey) {
+    return res.status(400).json({ error: 'Missing API Key in settings for the selected model.' });
+  }
+
+  let prompt = '';
+  if (taskType === 'prompt') {
+    prompt = `You are a Stable Diffusion prompt engineering expert. 
+Your task is to take the user's raw idea: "${userIdea}"
+And expand it into a premium quality, highly descriptive positive prompt, along with a matching detailed negative prompt.
+${artStyle ? `Apply the following artistic style guidelines: "${artStyle}"` : ''}
+
+Provide a JSON object matching this schema:
+{
+  "positivePrompt": "expanded descriptive prompt containing lighting, style, detail key phrases",
+  "negativePrompt": "negative modifiers matching the prompt structure to avoid"
+}
+Ensure you respond with strictly valid, raw JSON. Do not wrap in markdown block quotes.`;
+  } else if (taskType === 'workflow') {
+    prompt = `You are a ComfyUI workflow automation expert.
+Your task is to generate a ComfyUI API JSON workflow (a map of node IDs to node configurations) for the following setup: "${userIdea}"
+Ensure it is a valid, raw JSON ComfyUI API format that can be parsed.
+
+Provide a JSON object matching this schema:
+{
+  "workflow": {
+    "node_id": { "inputs": { ... }, "class_type": "..." }
+  }
+}
+Ensure you respond with strictly valid, raw JSON. Do not wrap in markdown block quotes.`;
+  } else {
+    return res.status(400).json({ error: 'Invalid taskType' });
+  }
+
+  try {
+    let resultText = '';
+    if (modelName.startsWith('gemini')) {
+      const runRes = await runGemini({ model: modelName, prompt, temperature: 0.2, apiKey, maxTokens: 4096 });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('claude')) {
+      const runRes = await runClaude({ model: modelName, prompt, temperature: 0.2, apiKey, maxTokens: 4096 });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('gpt') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+      const runRes = await runOpenAI({ model: modelName, prompt, temperature: 0.2, apiKey, maxTokens: 4096 });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('ollama/')) {
+      const runRes = await runOllama({ model: modelName, prompt, temperature: 0.2, ollamaUrl, maxTokens: 4096 });
+      resultText = runRes.output;
+    } else if (modelName.startsWith('lmstudio/')) {
+      const runRes = await runLMStudio({ model: modelName, prompt, temperature: 0.2, lmStudioUrl, maxTokens: 4096 });
+      resultText = runRes.output;
+    }
+
+    const json = parseJsonFromLlm(resultText);
+    res.json(json);
+  } catch (err) {
+    console.error('Image Studio Copilot failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 7. Generate image via ComfyUI
 app.post('/api/image-studio/generate', async (req, res) => {
   const params = req.body;

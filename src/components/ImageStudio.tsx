@@ -19,7 +19,8 @@ import {
   Edit3,
   Edit,
   Brush,
-  Wind
+  Wind,
+  Bot
 } from 'lucide-react';
 
 interface ImagePrompt {
@@ -355,6 +356,13 @@ export const ImageStudio: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [checkpointsLoading, setCheckpointsLoading] = useState<boolean>(false);
+
+  // Copilot Assistant State
+  const [showCopilot, setShowCopilot] = useState<boolean>(false);
+  const [copilotIdea, setCopilotIdea] = useState<string>('');
+  const [copilotStyle, setCopilotStyle] = useState<string>('none');
+  const [copilotLoading, setCopilotLoading] = useState<boolean>(false);
+  const [copilotResult, setCopilotResult] = useState<any | null>(null);
 
   // Canvas Refs
   const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -918,6 +926,34 @@ export const ImageStudio: React.FC = () => {
     fetchGallery();
   };
 
+  // Image Copilot Runner
+  const handleRunCopilot = async (taskType: 'prompt' | 'workflow') => {
+    if (!copilotIdea.trim()) {
+      showStatus('Please specify an idea/topic for the Copilot.', 'error');
+      return;
+    }
+    setCopilotLoading(true);
+    setCopilotResult(null);
+    showStatus('Querying Copilot model...', 'info');
+
+    const activeModel = localStorage.getItem('copilot_selected_model') || 'gemini-1.5-flash';
+
+    try {
+      const res = await api.post('/api/image-studio/copilot', {
+        taskType,
+        userIdea: copilotIdea,
+        artStyle: copilotStyle !== 'none' ? copilotStyle : undefined,
+        model: activeModel
+      });
+      setCopilotResult({ type: taskType, ...res });
+      showStatus('Copilot resolved successfully!', 'success');
+    } catch (err: any) {
+      showStatus('Copilot failed: ' + err.message, 'error');
+    } finally {
+      setCopilotLoading(false);
+    }
+  };
+
   // SVG workflow diagram modal trigger
   const handleOpenWorkflowGraph = () => {
     try {
@@ -959,7 +995,6 @@ export const ImageStudio: React.FC = () => {
     
     setIsDrawing(true);
     const rect = mainCanvas.getBoundingClientRect();
-    // Translate client coordinates relative to physical canvas scale
     const x = ((e.clientX - rect.left) / rect.width) * mainCanvas.width;
     const y = ((e.clientY - rect.top) / rect.height) * mainCanvas.height;
     setLastPos({ x, y });
@@ -1018,7 +1053,6 @@ export const ImageStudio: React.FC = () => {
     setIsLoading(true);
     showStatus('Saving edited image to gallery...', 'info');
 
-    // Bake and grab base64 representation
     const dataUrl = mainCanvas.toDataURL('image/png');
 
     try {
@@ -1061,8 +1095,7 @@ export const ImageStudio: React.FC = () => {
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
 
-    // Create a temporary black canvas
-    const tempCanvas = document.createElement('temp-canvas') as any || document.createElement('canvas');
+    const tempCanvas = document.createElement('canvas');
     tempCanvas.width = maskCanvas.width;
     tempCanvas.height = maskCanvas.height;
     const tempCtx = tempCanvas.getContext('2d');
@@ -1075,7 +1108,6 @@ export const ImageStudio: React.FC = () => {
     // Draw painted mask strokes on top as pure White
     const maskCtx = maskCanvas.getContext('2d');
     if (maskCtx) {
-      // Find all drawn pixels (alpha > 0) and draw them as white
       const imgData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
       const data = imgData.data;
       
@@ -1167,8 +1199,112 @@ export const ImageStudio: React.FC = () => {
           </div>
 
           <div className="pane-section border-bottom scrollable-section">
+            {/* Copilot Prompt & Workflow Assistant */}
+            <div className="form-group border-panel copilot-assistant-section">
+              <div className="toggle-row" style={{ justifyContent: 'space-between' }}>
+                <span className="toggle-row-label" style={{ fontWeight: 600, fontSize: '13px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Bot size={16} /> Copilot AI Assistant
+                </span>
+                <button 
+                  className="btn btn-secondary btn-small"
+                  onClick={() => setShowCopilot(!showCopilot)}
+                >
+                  {showCopilot ? 'Hide' : 'Expand'}
+                </button>
+              </div>
+
+              {showCopilot && (
+                <div className="copilot-expanded-content fade-in" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Describe your design goal</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. A gorgeous watercolor fantasy cottage in mountains..."
+                      value={copilotIdea}
+                      onChange={(e) => setCopilotIdea(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Artistic Style Modifier</label>
+                    <select value={copilotStyle} onChange={(e) => setCopilotStyle(e.target.value)}>
+                      <option value="none">-- None (Raw Expansion) --</option>
+                      <option value="Cinematic Portrait (volumetric lighting, highly detailed 8k photography, 85mm lens)">Cinematic Portrait</option>
+                      <option value="Vaporwave Anime Style (neon pastel colors, retro 90s aesthetic, cel shaded)">Vaporwave Anime</option>
+                      <option value="Watercolor Fantasy (soft paint washes, ink sketch outlines, whimsical vibe)">Watercolor Fantasy</option>
+                      <option value="Cyberpunk Cityscape (neon glowing signage, wet rainy asphalt, dark cinematic ambiance)">Cyberpunk Cityscape</option>
+                      <option value="Photorealistic Landscape (natural morning sunshine, high dynamic range, detailed textures)">Photorealistic Landscape</option>
+                      <option value="3D Game Render (Unreal Engine 5 style, octane render, stylized digital art)">3D Game Render</option>
+                    </select>
+                  </div>
+
+                  <div className="form-row flex-gap" style={{ marginBottom: 0 }}>
+                    <button 
+                      className="btn btn-secondary flex-1 btn-small"
+                      onClick={() => handleRunCopilot('prompt')}
+                      disabled={copilotLoading}
+                    >
+                      {copilotLoading ? <Loader2 className="spinning" size={12} /> : 'Expand Prompt'}
+                    </button>
+                    <button 
+                      className="btn btn-secondary flex-1 btn-small"
+                      onClick={() => handleRunCopilot('workflow')}
+                      disabled={copilotLoading}
+                    >
+                      {copilotLoading ? <Loader2 className="spinning" size={12} /> : 'Generate Workflow'}
+                    </button>
+                  </div>
+
+                  {copilotResult && (
+                    <div className="copilot-result-box border-panel fade-in" style={{ marginTop: '10px', background: 'rgba(0,0,0,0.2)', padding: '10px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                        AI Suggestion
+                      </span>
+                      {copilotResult.type === 'prompt' ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ fontSize: '12px', maxHeight: '100px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '6px', borderRadius: '4px', lineHeight: '1.4' }}>
+                            <strong>Positive:</strong> {copilotResult.positivePrompt}
+                          </div>
+                          <button 
+                            className="btn btn-primary btn-small"
+                            onClick={() => {
+                              setPositivePrompt(copilotResult.positivePrompt);
+                              if (copilotResult.negativePrompt) {
+                                setNegativePrompt(copilotResult.negativePrompt);
+                              }
+                              setCopilotResult(null);
+                              showStatus('Copilot prompt applied!', 'success');
+                            }}
+                          >
+                            Apply Prompt
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ fontSize: '11px', fontFamily: 'monospace', maxHeight: '100px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '6px', borderRadius: '4px', color: '#a7f3d0' }}>
+                            {JSON.stringify(copilotResult.workflow).substr(0, 150)}...
+                          </div>
+                          <button 
+                            className="btn btn-primary btn-small"
+                            onClick={() => {
+                              setUseCustomWorkflow(true);
+                              setCustomWorkflow(JSON.stringify(copilotResult.workflow, null, 2));
+                              setCopilotResult(null);
+                              showStatus('Copilot workflow applied!', 'success');
+                            }}
+                          >
+                            Apply Custom Workflow
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Checkpoint Loader */}
-            <div className="form-group">
+            <div className="form-group" style={{ marginTop: '14px' }}>
               <label>Model Checkpoint</label>
               {checkpointsLoading ? (
                 <div className="loader-row"><Loader2 className="spinning" size={14} /> Loading checkpoints...</div>
