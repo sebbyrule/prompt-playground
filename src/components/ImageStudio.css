@@ -1365,6 +1365,24 @@
   padding: 10px;
 }
 
+/* LoRA Details Previews & Trigger word chips */
+.lora-details-badge {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.lora-thumbnail-preview {
+  transition: transform 0.2s;
+}
+
+.lora-thumbnail-preview:hover {
+  transform: scale(2.0);
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
 @media (max-width: 768px) {
   .image-studio-content {
     flex-direction: column;

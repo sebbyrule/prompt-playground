@@ -297,13 +297,32 @@ export const ImageStudio: React.FC = () => {
   const [useCustomWorkflow, setUseCustomWorkflow] = useState<boolean>(false);
   const [customWorkflow, setCustomWorkflow] = useState<string>('');
 
+  // Model configuration presets state
+  const [modelPreset, setModelPreset] = useState<string>('sd15');
+
   // LoRA settings state
   const [loras, setLoras] = useState<{ name: string; strength: number }[]>([]);
   const [lorasList, setLorasList] = useState<string[]>([]);
+  const [loraDetails, setLoraDetails] = useState<{ 
+    [name: string]: { triggerWords: string[]; previewUrl: string; loading: boolean } 
+  }>({});
 
   // img2img settings state
   const [initialImage, setInitialImage] = useState<string | null>(null);
   const [denoise, setDenoise] = useState<number>(0.6);
+
+  // ControlNet settings state
+  const [controlNetEnabled, setControlNetEnabled] = useState<boolean>(false);
+  const [controlNetImage, setControlNetImage] = useState<string | null>(null);
+  const [controlNetModel, setControlNetModel] = useState<string>('control_v11p_sd15_canny.pth');
+  const [controlNetPreprocessor, setControlNetPreprocessor] = useState<string>('canny');
+  const [controlNetStrength, setControlNetStrength] = useState<number>(1.0);
+
+  // IP-Adapter settings state
+  const [ipAdapterEnabled, setIpAdapterEnabled] = useState<boolean>(false);
+  const [ipAdapterImage, setIpAdapterImage] = useState<string | null>(null);
+  const [ipAdapterModel, setIpAdapterModel] = useState<string>('ip-adapter_sd15.bin');
+  const [ipAdapterWeight, setIpAdapterWeight] = useState<number>(0.8);
 
   // Aspect ratio presets state
   const [aspectRatio, setAspectRatio] = useState<string>('1:1');
@@ -379,6 +398,19 @@ export const ImageStudio: React.FC = () => {
   ];
   const schedulers = ['normal', 'karras', 'exponential', 'sgm_uniform', 'simple', 'ddim_uniform'];
   const dimensions = [512, 768, 1024];
+
+  const controlNetModels = [
+    'control_v11p_sd15_canny.pth',
+    'control_v11f1p_sd15_depth.pth',
+    'control_v11p_sd15_openpose.pth',
+    'control_v11p_sd15_scribble.pth'
+  ];
+
+  const ipAdapterModels = [
+    'ip-adapter_sd15.bin',
+    'ip-adapter_sd15_plus.bin',
+    'ip-adapter_sdxl.bin'
+  ];
 
   useEffect(() => {
     fetchPrompts();
@@ -467,6 +499,32 @@ export const ImageStudio: React.FC = () => {
       setLorasList(data);
     } catch (err: any) {
       console.warn('Could not retrieve comfy loras:', err.message);
+    }
+  };
+
+  const fetchLoraDetails = async (loraName: string) => {
+    if (loraDetails[loraName]) return;
+    
+    setLoraDetails(prev => ({
+      ...prev,
+      [loraName]: { triggerWords: [], previewUrl: '', loading: true }
+    }));
+
+    try {
+      const res = await api.get(`/api/image-studio/lora-details?name=${encodeURIComponent(loraName)}`);
+      setLoraDetails(prev => ({
+        ...prev,
+        [loraName]: {
+          triggerWords: res.triggerWords || [],
+          previewUrl: res.previewUrl || '',
+          loading: false
+        }
+      }));
+    } catch (e) {
+      setLoraDetails(prev => ({
+        ...prev,
+        [loraName]: { triggerWords: [], previewUrl: '', loading: false }
+      }));
     }
   };
 
@@ -561,6 +619,58 @@ export const ImageStudio: React.FC = () => {
     }
   };
 
+  const handleApplyPreset = (preset: string) => {
+    setModelPreset(preset);
+    switch (preset) {
+      case 'sd15':
+        setWidth(512);
+        setHeight(512);
+        setSteps(20);
+        setCfg(7.5);
+        setSampler('euler');
+        setScheduler('normal');
+        setNegativePrompt('embedding:easynegative, deformed, bad eyes, blurry, low contrast, duplicate, draft');
+        break;
+      case 'sdxl':
+        setWidth(1024);
+        setHeight(1024);
+        setSteps(25);
+        setCfg(8.0);
+        setSampler('dpmpp_2m_sde');
+        setScheduler('karras');
+        setNegativePrompt('deformed, bad eyes, blurry, duplicate, draft');
+        break;
+      case 'flux':
+        setWidth(1024);
+        setHeight(1024);
+        setSteps(20);
+        setCfg(1.0); // Flux Guidance 3.5 is mapped at model loader weights
+        setSampler('euler');
+        setScheduler('simple');
+        setNegativePrompt(''); // Flux ignores negatives
+        break;
+      case 'krea':
+        setWidth(1024);
+        setHeight(768);
+        setSteps(30);
+        setCfg(7.0);
+        setSampler('uni_pc');
+        setScheduler('normal');
+        break;
+      case 'qwen':
+        setWidth(512);
+        setHeight(512);
+        setSteps(15);
+        setCfg(5.0);
+        setSampler('euler');
+        setScheduler('normal');
+        break;
+      default:
+        break;
+    }
+    showStatus(`Preset "${preset.toUpperCase()}" settings snap applied!`, 'success');
+  };
+
   const handleGenerate = async () => {
     if (!positivePrompt.trim()) {
       showStatus('Positive prompt cannot be empty.', 'error');
@@ -592,7 +702,20 @@ export const ImageStudio: React.FC = () => {
       customWorkflow: useCustomWorkflow ? customWorkflow : undefined,
       loras,
       initialImage: initialImage || undefined,
-      denoise: initialImage ? denoise : undefined
+      denoise: initialImage ? denoise : undefined,
+      
+      // ControlNet Parameters
+      controlNetEnabled,
+      controlNetImage: controlNetEnabled ? controlNetImage : undefined,
+      controlNetModel: controlNetEnabled ? controlNetModel : undefined,
+      controlNetPreprocessor: controlNetEnabled ? controlNetPreprocessor : undefined,
+      controlNetStrength: controlNetEnabled ? controlNetStrength : undefined,
+
+      // IP-Adapter Parameters
+      ipAdapterEnabled,
+      ipAdapterImage: ipAdapterEnabled ? ipAdapterImage : undefined,
+      ipAdapterModel: ipAdapterEnabled ? ipAdapterModel : undefined,
+      ipAdapterWeight: ipAdapterEnabled ? ipAdapterWeight : undefined
     };
 
     try {
@@ -646,7 +769,9 @@ export const ImageStudio: React.FC = () => {
       showStatus('No comfy LoRA files detected.', 'error');
       return;
     }
-    setLoras([...loras, { name: lorasList[0], strength: 1.0 }]);
+    const targetLora = lorasList[0];
+    setLoras([...loras, { name: targetLora, strength: 1.0 }]);
+    fetchLoraDetails(targetLora);
   };
 
   const handleRemoveLora = (index: number) => {
@@ -657,6 +782,7 @@ export const ImageStudio: React.FC = () => {
     const updated = [...loras];
     if (field === 'name') {
       updated[index].name = value;
+      fetchLoraDetails(value);
     } else {
       updated[index].strength = Number(value);
     }
@@ -679,6 +805,113 @@ export const ImageStudio: React.FC = () => {
   const handleClearInitialImage = () => {
     setInitialImage(null);
     showStatus('Initial image cleared. Switched back to txt2img.', 'info');
+  };
+
+  // ControlNet Guide Image Uploader
+  const handleControlNetImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setControlNetImage(event.target?.result as string);
+      showStatus('ControlNet image guide loaded!', 'success');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleClearControlNetImage = () => {
+    setControlNetImage(null);
+    showStatus('ControlNet reference image cleared.', 'info');
+  };
+
+  // Sobel Filter Preprocessor edge previewer
+  const handlePreviewControlNetMap = () => {
+    if (!controlNetImage) {
+      showStatus('Please upload a ControlNet reference image first.', 'error');
+      return;
+    }
+    showStatus('Preprocessing control image locally...', 'info');
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = controlNetImage;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      const gray = new Uint8Array(width * height);
+      for (let i = 0; i < data.length; i += 4) {
+        gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      }
+
+      const edges = new Uint8Array(width * height);
+      const gx = [
+        -1, 0, 1,
+        -2, 0, 2,
+        -1, 0, 1
+      ];
+      const gy = [
+        -1, -2, -1,
+         0,  0,  0,
+         1,  2,  1
+      ];
+
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          let valX = 0;
+          let valY = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const pixel = gray[(y + ky) * width + (x + kx)];
+              valX += pixel * gx[(ky + 1) * 3 + (kx + 1)];
+              valY += pixel * gy[(ky + 1) * 3 + (kx + 1)];
+            }
+          }
+          const magnitude = Math.sqrt(valX * valX + valY * valY);
+          edges[y * width + x] = magnitude > 50 ? 255 : 0;
+        }
+      }
+
+      for (let i = 0; i < data.length; i += 4) {
+        const val = edges[i / 4];
+        data[i] = val;
+        data[i + 1] = val;
+        data[i + 2] = val;
+        data[i + 3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      setControlNetImage(canvas.toDataURL('image/png'));
+      showStatus('Sobel edges preprocessor map applied!', 'success');
+    };
+  };
+
+  // IP-Adapter style reference Image Uploader
+  const handleIpAdapterImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setIpAdapterImage(event.target?.result as string);
+      showStatus('IP-Adapter style reference image loaded!', 'success');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleClearIpAdapterImage = () => {
+    setIpAdapterImage(null);
+    showStatus('IP-Adapter reference image cleared.', 'info');
   };
 
   // Aspect ratio resolution snapping
@@ -1155,8 +1388,20 @@ export const ImageStudio: React.FC = () => {
           <div className="pane-section border-bottom">
             <h3 className="section-title"><Sliders size={16} /> Parameters</h3>
             
+            {/* Model configuration preset select */}
+            <div className="form-group">
+              <label>Model Engine / Preset</label>
+              <select value={modelPreset} onChange={(e) => handleApplyPreset(e.target.value)}>
+                <option value="sd15">Stable Diffusion v1.5 (Standard)</option>
+                <option value="sdxl">Stable Diffusion XL (High Def)</option>
+                <option value="flux">FLUX.1 (Pro Quality)</option>
+                <option value="krea">Krea AI Creative Style</option>
+                <option value="qwen">Qwen Image Edit (Pix2Pix)</option>
+              </select>
+            </div>
+
             {/* Prompt Selector */}
-            <div className="form-row flex-gap">
+            <div className="form-row flex-gap" style={{ marginTop: '12px' }}>
               <div className="form-group flex-1">
                 <label>Saved Prompts</label>
                 <select 
@@ -1338,15 +1583,17 @@ export const ImageStudio: React.FC = () => {
             </div>
 
             {/* Negative Prompt */}
-            <div className="form-group">
-              <label>Negative Prompt</label>
-              <textarea 
-                className="prompt-textarea negative" 
-                placeholder="ugly, deformed, bad quality..."
-                value={negativePrompt}
-                onChange={(e) => setNegativePrompt(e.target.value)}
-              />
-            </div>
+            {modelPreset !== 'flux' && (
+              <div className="form-group fade-in">
+                <label>Negative Prompt</label>
+                <textarea 
+                  className="prompt-textarea negative" 
+                  placeholder="ugly, deformed, bad quality..."
+                  value={negativePrompt}
+                  onChange={(e) => setNegativePrompt(e.target.value)}
+                />
+              </div>
+            )}
 
             {/* LoRAs Section */}
             <div className="form-group loras-section">
@@ -1356,33 +1603,80 @@ export const ImageStudio: React.FC = () => {
               </div>
               {loras.length > 0 && (
                 <div className="loras-list-container">
-                  {loras.map((lora, index) => (
-                    <div key={index} className="lora-row border-panel">
-                      <select 
-                        value={lora.name}
-                        onChange={(e) => handleLoraChange(index, 'name', e.target.value)}
-                        className="lora-select"
-                      >
-                        {lorasList.map(l => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                      <div className="lora-weight-control">
-                        <input 
-                          type="range" 
-                          min={0.0} 
-                          max={1.5} 
-                          step={0.05} 
-                          value={lora.strength} 
-                          onChange={(e) => handleLoraChange(index, 'strength', e.target.value)}
-                        />
-                        <span className="weight-badge">{lora.strength.toFixed(2)}</span>
+                  {loras.map((lora, index) => {
+                    const details = loraDetails[lora.name];
+                    return (
+                      <div key={index} className="lora-row border-panel" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <select 
+                            value={lora.name}
+                            onChange={(e) => handleLoraChange(index, 'name', e.target.value)}
+                            className="lora-select"
+                            style={{ flex: 1 }}
+                          >
+                            {lorasList.map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                          <button className="btn btn-icon btn-danger-hover" onClick={() => handleRemoveLora(index)}>
+                            <X size={12} />
+                          </button>
+                        </div>
+
+                        <div className="lora-weight-control" style={{ marginTop: '8px' }}>
+                          <input 
+                            type="range" 
+                            min={0.0} 
+                            max={1.5} 
+                            step={0.05} 
+                            value={lora.strength} 
+                            onChange={(e) => handleLoraChange(index, 'strength', e.target.value)}
+                            style={{ flex: 1 }}
+                          />
+                          <span className="weight-badge">{lora.strength.toFixed(2)}</span>
+                        </div>
+
+                        {/* LoRA Previews and click-to-add trigger words */}
+                        {details && (
+                          <div className="lora-details-badge fade-in" style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', display: 'flex', gap: '8px' }}>
+                            {details.loading ? (
+                              <div className="loader-row" style={{ fontSize: '10px' }}><Loader2 className="spinning" size={10} /> Fetching Civitai words...</div>
+                            ) : (
+                              <>
+                                {details.previewUrl && (
+                                  <img 
+                                    src={details.previewUrl} 
+                                    className="lora-thumbnail-preview" 
+                                    alt="LoRA model illustration" 
+                                    style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }}
+                                  />
+                                )}
+                                <div style={{ flex: 1 }}>
+                                  <span style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Trigger Words (Click to add):</span>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {details.triggerWords.length === 0 ? (
+                                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>None detected</span>
+                                    ) : (
+                                      details.triggerWords.slice(0, 6).map(word => (
+                                        <button 
+                                          key={word}
+                                          className="preset-chip btn-small"
+                                          style={{ padding: '2px 6px', fontSize: '9px' }}
+                                          onClick={() => setPositivePrompt(prev => prev ? `${prev}, ${word}` : word)}
+                                        >
+                                          {word}
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <button className="btn btn-icon btn-danger-hover" onClick={() => handleRemoveLora(index)}>
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1451,6 +1745,139 @@ export const ImageStudio: React.FC = () => {
                     accept="image/*"
                     onChange={handleInitialImageUpload}
                   />
+                </div>
+              )}
+            </div>
+
+            {/* ControlNet Section Accordion */}
+            <div className="form-group border-panel xy-plot-config">
+              <div className="toggle-row">
+                <input 
+                  type="checkbox" 
+                  id="enable-controlnet" 
+                  checked={controlNetEnabled}
+                  onChange={(e) => setControlNetEnabled(e.target.checked)}
+                />
+                <label htmlFor="enable-controlnet"><Grid size={14} style={{ marginRight: '4px' }} /> Enable ControlNet Guidance</label>
+              </div>
+
+              {controlNetEnabled && (
+                <div className="xy-config-form fade-in" style={{ marginTop: '10px' }}>
+                  <div className="form-group">
+                    <label>Control Model</label>
+                    <select value={controlNetModel} onChange={(e) => setControlNetModel(e.target.value)}>
+                      {controlNetModels.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Preprocessor Outline</label>
+                    <select value={controlNetPreprocessor} onChange={(e) => setControlNetPreprocessor(e.target.value)}>
+                      <option value="canny">Canny Edges Preprocessor</option>
+                      <option value="none">None (Direct upload map)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Control Image Guide</label>
+                    {controlNetImage ? (
+                      <div className="initial-image-preview-container">
+                        <img src={controlNetImage} className="initial-image-thumbnail" alt="ControlNet guide sketch" />
+                        <div className="initial-image-controls">
+                          <button className="btn btn-secondary btn-small" onClick={handleClearControlNetImage}><X size={12} /> Clear Guide</button>
+                          {controlNetPreprocessor === 'canny' && (
+                            <button className="btn btn-secondary btn-small" onClick={handlePreviewControlNetMap} style={{ marginTop: '4px' }}>
+                              Preview Edges Map
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="img2img-upload-dropzone">
+                        <ImageIcon size={24} className="upload-icon" />
+                        <span>Upload outline / sketch guide</span>
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          onChange={handleControlNetImageUpload}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <div className="denoise-slider-container">
+                      <label className="denoise-label">Control Strength: <span>{controlNetStrength.toFixed(2)}</span></label>
+                      <input 
+                        type="range" 
+                        min={0.0} 
+                        max={2.0} 
+                        step={0.05} 
+                        value={controlNetStrength} 
+                        onChange={(e) => setControlNetStrength(Number(e.target.value))} 
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* IP-Adapter Style Transfer Section Accordion */}
+            <div className="form-group border-panel xy-plot-config">
+              <div className="toggle-row">
+                <input 
+                  type="checkbox" 
+                  id="enable-ipadapter" 
+                  checked={ipAdapterEnabled}
+                  onChange={(e) => setIpAdapterEnabled(e.target.checked)}
+                />
+                <label htmlFor="enable-ipadapter"><Wind size={14} style={{ marginRight: '4px' }} /> Enable IP-Adapter Style Reference</label>
+              </div>
+
+              {ipAdapterEnabled && (
+                <div className="xy-config-form fade-in" style={{ marginTop: '10px' }}>
+                  <div className="form-group">
+                    <label>Style Model</label>
+                    <select value={ipAdapterModel} onChange={(e) => setIpAdapterModel(e.target.value)}>
+                      {ipAdapterModels.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Style Reference Image</label>
+                    {ipAdapterImage ? (
+                      <div className="initial-image-preview-container">
+                        <img src={ipAdapterImage} className="initial-image-thumbnail" alt="IP-Adapter style input" />
+                        <div className="initial-image-controls">
+                          <button className="btn btn-secondary btn-small" onClick={handleClearIpAdapterImage}><X size={12} /> Clear Reference</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="img2img-upload-dropzone">
+                        <ImageIcon size={24} className="upload-icon" />
+                        <span>Upload style / concept image</span>
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          onChange={handleIpAdapterImageUpload}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <div className="denoise-slider-container">
+                      <label className="denoise-label">Influence Weight: <span>{ipAdapterWeight.toFixed(2)}</span></label>
+                      <input 
+                        type="range" 
+                        min={0.0} 
+                        max={1.5} 
+                        step={0.05} 
+                        value={ipAdapterWeight} 
+                        onChange={(e) => setIpAdapterWeight(Number(e.target.value))} 
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1552,10 +1979,12 @@ export const ImageStudio: React.FC = () => {
                         <label>Steps</label>
                         <input type="number" min={1} max={150} value={steps} onChange={(e) => setSteps(Number(e.target.value))} />
                       </div>
-                      <div className="form-group flex-1">
-                        <label>CFG Scale</label>
-                        <input type="number" min={1} max={30} step={0.5} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} />
-                      </div>
+                      {modelPreset !== 'flux' && (
+                        <div className="form-group flex-1">
+                          <label>CFG Scale</label>
+                          <input type="number" min={1} max={30} step={0.5} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} />
+                        </div>
+                      )}
                     </div>
 
                     <div className="form-row flex-gap">

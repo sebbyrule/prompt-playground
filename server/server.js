@@ -3035,6 +3035,67 @@ function buildComfyWorkflow(params) {
     workflow["3"].inputs.latent_image = ["91", 0];
     workflow["3"].inputs.denoise = Number(params.denoise || 0.6);
   }
+
+  // ControlNet Injection
+  if (params.controlNetEnabled && params.controlNetImageFilename && params.controlNetModel) {
+    workflow["200"] = {
+      inputs: {
+        control_net_name: params.controlNetModel
+      },
+      class_type: "ControlNetLoader"
+    };
+    workflow["202"] = {
+      inputs: {
+        image: params.controlNetImageFilename
+      },
+      class_type: "LoadImage"
+    };
+    workflow["201"] = {
+      inputs: {
+        strength: Number(params.controlNetStrength || 1.0),
+        conditioning: ["6", 0],
+        control_net: ["200", 0],
+        image: ["202", 0]
+      },
+      class_type: "ControlNetApply"
+    };
+    // Re-link KSampler positive conditioning input
+    workflow["3"].inputs.positive = ["201", 0];
+  }
+
+  // IP-Adapter Injection
+  if (params.ipAdapterEnabled && params.ipAdapterImageFilename && params.ipAdapterModel) {
+    workflow["300"] = {
+      inputs: {
+        ipadapter_file: params.ipAdapterModel
+      },
+      class_type: "IPAdapterModelLoader"
+    };
+    workflow["301"] = {
+      inputs: {
+        clip_name: params.clipVisionModel || "clip_vision_g.safetensors"
+      },
+      class_type: "CLIPVisionLoader"
+    };
+    workflow["302"] = {
+      inputs: {
+        image: params.ipAdapterImageFilename
+      },
+      class_type: "LoadImage"
+    };
+    workflow["303"] = {
+      inputs: {
+        weight: Number(params.ipAdapterWeight || 1.0),
+        model: lastModelOutput,
+        ipadapter: ["300", 0],
+        clip_vision: ["301", 0],
+        image: ["302", 0]
+      },
+      class_type: "IPAdapterApply"
+    };
+    // Re-link KSampler model input to IP-Adapter output
+    workflow["3"].inputs.model = ["303", 0];
+  }
   
   return workflow;
 }
@@ -3209,6 +3270,39 @@ app.get('/api/image-studio/comfy-loras', async (req, res) => {
   res.json(loras);
 });
 
+// 6.6. Get LoRA trigger words from Civitai or local metadata
+app.get('/api/image-studio/lora-details', async (req, res) => {
+  const { name } = req.query;
+  if (!name) {
+    return res.status(400).json({ error: 'Missing LoRA name' });
+  }
+
+  try {
+    const cleanName = path.basename(String(name), path.extname(String(name)));
+    const civitaiUrl = `https://civitai.com/api/v1/models?query=${encodeURIComponent(cleanName)}`;
+    const response = await fetch(civitaiUrl);
+    if (!response.ok) {
+      return res.json({ triggerWords: [], previewUrl: '' });
+    }
+    
+    const data = await response.json();
+    if (data && data.items && data.items.length > 0) {
+      const model = data.items[0];
+      const version = model.modelVersions ? model.modelVersions[0] : null;
+      if (version) {
+        const triggerWords = version.trainedWords || [];
+        const previewUrl = version.images && version.images.length > 0 ? version.images[0].url : '';
+        return res.json({ triggerWords, previewUrl });
+      }
+    }
+    
+    res.json({ triggerWords: [], previewUrl: '' });
+  } catch (err) {
+    console.error('Failed to resolve LoRA details:', err);
+    res.json({ triggerWords: [], previewUrl: '' });
+  }
+});
+
 // 6.7. Image Studio Copilot LLM assistant
 app.post('/api/image-studio/copilot', async (req, res) => {
   const { taskType, userIdea, artStyle, model } = req.body;
@@ -3300,11 +3394,24 @@ app.post('/api/image-studio/generate', async (req, res) => {
     if (params.initialImage) {
       initialImageFilename = await uploadImageToComfy(comfyUrl, params.initialImage);
     }
+    
+    let controlNetImageFilename = null;
+    if (params.controlNetImage) {
+      controlNetImageFilename = await uploadImageToComfy(comfyUrl, params.controlNetImage);
+    }
+
+    let ipAdapterImageFilename = null;
+    if (params.ipAdapterImage) {
+      ipAdapterImageFilename = await uploadImageToComfy(comfyUrl, params.ipAdapterImage);
+    }
+
     const workflowObj = buildComfyWorkflow({ 
       ...params, 
       positivePrompt: resolvedPositive,
       negativePrompt: resolvedNegative,
-      initialImageFilename 
+      initialImageFilename,
+      controlNetImageFilename,
+      ipAdapterImageFilename
     });
     const promptRes = await fetch(`${comfyUrl}/prompt`, {
       method: 'POST',
