@@ -2860,6 +2860,45 @@ async function checkAndResolveComfyUrl(url) {
   return url;
 }
 
+async function getComfyUiLoras(comfyUrl) {
+  try {
+    const res = await fetch(`${comfyUrl}/object_info`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const loader = data.LoraLoader;
+    if (loader && loader.input && loader.input.required && loader.input.required.lora_name) {
+      return loader.input.required.lora_name[0] || [];
+    }
+  } catch (e) {
+    console.error('Failed to fetch LoRAs from ComfyUI:', e);
+  }
+  return [];
+}
+
+async function uploadImageToComfy(comfyUrl, base64Data) {
+  const matches = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
+  if (!matches) throw new Error('Invalid base64 image data');
+  const ext = matches[1];
+  const buffer = Buffer.from(matches[2], 'base64');
+  
+  const form = new FormData();
+  const blob = new Blob([buffer], { type: `image/${ext}` });
+  form.append('image', blob, `upload_${Date.now()}.${ext}`);
+  
+  const res = await fetch(`${comfyUrl}/upload/image`, {
+    method: 'POST',
+    body: form
+  });
+  
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to upload initial image to ComfyUI: ${res.status} - ${text}`);
+  }
+  
+  const data = await res.json();
+  return data.name;
+}
+
 async function getComfyUiCheckpoints(comfyUrl) {
   try {
     const res = await fetch(`${comfyUrl}/object_info`);
@@ -2889,15 +2928,45 @@ function buildComfyWorkflow(params) {
       .replace(/\{\{scheduler\}\}/g, JSON.stringify(params.scheduler || "normal"))
       .replace(/\{\{width\}\}/g, params.width)
       .replace(/\{\{height\}\}/g, params.height);
+      
+    if (params.initialImageFilename) {
+      workflowStr = workflowStr
+        .replace(/\{\{initial_image\}\}/g, JSON.stringify(params.initialImageFilename))
+        .replace(/\{\{denoise\}\}/g, params.denoise || 0.6);
+    }
     return JSON.parse(workflowStr);
   }
   
   const workflow = JSON.parse(JSON.stringify(DEFAULT_COMFY_WORKFLOW));
+  
+  let lastModelOutput = ["4", 0];
+  let lastClipOutput = ["4", 1];
+  
+  if (params.loras && params.loras.length > 0) {
+    params.loras.forEach((lora, idx) => {
+      const nodeId = 100 + idx;
+      workflow[`${nodeId}`] = {
+        inputs: {
+          lora_name: lora.name,
+          strength_model: Number(lora.strength),
+          strength_clip: Number(lora.strength),
+          model: lastModelOutput,
+          clip: lastClipOutput
+        },
+        class_type: "LoraLoader"
+      };
+      lastModelOutput = [`${nodeId}`, 0];
+      lastClipOutput = [`${nodeId}`, 1];
+    });
+  }
+  
   workflow["3"].inputs.seed = Number(params.seed);
   workflow["3"].inputs.steps = Number(params.steps);
   workflow["3"].inputs.cfg = Number(params.cfg);
   workflow["3"].inputs.sampler_name = params.sampler;
   workflow["3"].inputs.scheduler = params.scheduler;
+  
+  workflow["3"].inputs.model = lastModelOutput;
   
   workflow["4"].inputs.ckpt_name = params.checkpoint;
   
@@ -2905,7 +2974,28 @@ function buildComfyWorkflow(params) {
   workflow["5"].inputs.height = Number(params.height);
   
   workflow["6"].inputs.text = params.positivePrompt;
+  workflow["6"].inputs.clip = lastClipOutput;
+  
   workflow["7"].inputs.text = params.negativePrompt;
+  workflow["7"].inputs.clip = lastClipOutput;
+  
+  if (params.initialImageFilename) {
+    workflow["90"] = {
+      inputs: {
+        image: params.initialImageFilename
+      },
+      class_type: "LoadImage"
+    };
+    workflow["91"] = {
+      inputs: {
+        pixels: ["90", 0],
+        vae: ["4", 2]
+      },
+      class_type: "VAEEncode"
+    };
+    workflow["3"].inputs.latent_image = ["91", 0];
+    workflow["3"].inputs.denoise = Number(params.denoise || 0.6);
+  }
   
   return workflow;
 }
@@ -2979,6 +3069,14 @@ app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
   res.json(checkpoints);
 });
 
+// 6.5. Get LoRAs from ComfyUI
+app.get('/api/image-studio/comfy-loras', async (req, res) => {
+  let comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  comfyUrl = await checkAndResolveComfyUrl(comfyUrl);
+  const loras = await getComfyUiLoras(comfyUrl);
+  res.json(loras);
+});
+
 // 7. Generate image via ComfyUI
 app.post('/api/image-studio/generate', async (req, res) => {
   const params = req.body;
@@ -2986,7 +3084,11 @@ app.post('/api/image-studio/generate', async (req, res) => {
   comfyUrl = await checkAndResolveComfyUrl(comfyUrl);
 
   try {
-    const workflowObj = buildComfyWorkflow(params);
+    let initialImageFilename = null;
+    if (params.initialImage) {
+      initialImageFilename = await uploadImageToComfy(comfyUrl, params.initialImage);
+    }
+    const workflowObj = buildComfyWorkflow({ ...params, initialImageFilename });
     const promptRes = await fetch(`${comfyUrl}/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
