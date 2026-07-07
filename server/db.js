@@ -59,5 +59,11 @@ export const db = {
   saveSessions: (sessions) => writeJsonFile('sessions.json', sessions),
 
   getElo: () => readJsonFile('elo.json', {}),
-  saveElo: (elo) => writeJsonFile('elo.json', elo)
+  saveElo: (elo) => writeJsonFile('elo.json', elo),
+
+  getImagePrompts: () => readJsonFile('image_prompts.json', []),
+  saveImagePrompts: (prompts) => writeJsonFile('image_prompts.json', prompts),
+
+  getImageGallery: () => readJsonFile('image_gallery.json', []),
+  saveImageGallery: (gallery) => writeJsonFile('image_gallery.json', gallery)
 };

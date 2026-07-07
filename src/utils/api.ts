@@ -8,6 +8,7 @@ export function getHeaders(): HeadersInit {
     'x-openai-key': localStorage.getItem('openai_api_key') || '',
     'x-ollama-url': localStorage.getItem('ollama_url') || 'http://localhost:11434',
     'x-lmstudio-url': localStorage.getItem('lmstudio_url') || 'http://localhost:1234',
+    'x-comfyui-url': localStorage.getItem('comfyui_url') || 'http://localhost:8188',
   };
 }
 

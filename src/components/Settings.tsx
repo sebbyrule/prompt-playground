@@ -8,6 +8,7 @@ export const Settings: React.FC = () => {
   const [openaiKey, setOpenaiKey] = useState('');
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [lmStudioUrl, setLmStudioUrl] = useState('http://localhost:1234');
+  const [comfyuiUrl, setComfyuiUrl] = useState('http://localhost:8188');
   
   const [showGemini, setShowGemini] = useState(false);
   const [showClaude, setShowClaude] = useState(false);
@@ -21,6 +22,7 @@ export const Settings: React.FC = () => {
     setOpenaiKey(localStorage.getItem('openai_api_key') || '');
     setOllamaUrl(localStorage.getItem('ollama_url') || 'http://localhost:11434');
     setLmStudioUrl(localStorage.getItem('lmstudio_url') || 'http://localhost:1234');
+    setComfyuiUrl(localStorage.getItem('comfyui_url') || 'http://localhost:8188');
   }, []);
 
   const handleSave = (e: React.FormEvent) => {
@@ -31,6 +33,7 @@ export const Settings: React.FC = () => {
       localStorage.setItem('openai_api_key', openaiKey.trim());
       localStorage.setItem('ollama_url', ollamaUrl.trim() || 'http://localhost:11434');
       localStorage.setItem('lmstudio_url', lmStudioUrl.trim() || 'http://localhost:1234');
+      localStorage.setItem('comfyui_url', comfyuiUrl.trim() || 'http://localhost:8188');
       
       setStatusMessage({ text: 'API configuration saved successfully!', type: 'success' });
       
@@ -49,12 +52,14 @@ export const Settings: React.FC = () => {
       localStorage.removeItem('openai_api_key');
       localStorage.removeItem('ollama_url');
       localStorage.removeItem('lmstudio_url');
+      localStorage.removeItem('comfyui_url');
       
       setGeminiKey('');
       setClaudeKey('');
       setOpenaiKey('');
       setOllamaUrl('http://localhost:11434');
       setLmStudioUrl('http://localhost:1234');
+      setComfyuiUrl('http://localhost:8188');
       
       setStatusMessage({ text: 'All keys cleared.', type: 'success' });
       setTimeout(() => setStatusMessage(null), 3000);
@@ -162,6 +167,18 @@ export const Settings: React.FC = () => {
             onChange={(e) => setLmStudioUrl(e.target.value)}
           />
           <small className="help-text">Used for running models hosted locally in LM Studio. Ensure LM Studio server is running.</small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="comfyui">Local ComfyUI API Endpoint</label>
+          <input
+            id="comfyui"
+            type="text"
+            placeholder="http://localhost:8188"
+            value={comfyuiUrl}
+            onChange={(e) => setComfyuiUrl(e.target.value)}
+          />
+          <small className="help-text">Used for local Stable Diffusion image generation. Ensure ComfyUI is running with API mode enabled.</small>
         </div>
 
         {statusMessage && (

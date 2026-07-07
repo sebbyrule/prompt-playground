@@ -3,6 +3,7 @@ import './Sidebar.css';
 import { 
   LayoutDashboard, 
   Terminal, 
+  Image,
   Split, 
   CheckSquare, 
   Sparkles, 
@@ -21,6 +22,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'studio', label: 'Prompt Studio', icon: Terminal },
+    { id: 'image-studio', label: 'Image Studio', icon: Image },
     { id: 'ab-testing', label: 'A/B Arena', icon: Split },
     { id: 'evaluator', label: 'Evaluator', icon: CheckSquare },
     { id: 'optimizer', label: 'Auto-Optimizer', icon: Sparkles },

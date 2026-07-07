@@ -132,5 +132,76 @@
     "executionMode": "javascript",
     "code": "async function execute(args) {\n  const amount = Number(args.amount) || 0;\n  const from = (args.from || 'USD').toUpperCase();\n  const to = (args.to || 'USD').toUpperCase();\n  const rates = {\n    USD: { EUR: 0.92, GBP: 0.79, JPY: 155.4, CAD: 1.36, USD: 1 },\n    EUR: { USD: 1.09, GBP: 0.86, JPY: 168.9, CAD: 1.48, EUR: 1 },\n    GBP: { USD: 1.27, EUR: 1.16, JPY: 196.7, CAD: 1.72, GBP: 1 }\n  };\n  const baseRates = rates[from] || rates['USD'];\n  const rate = baseRates[to] || (from === to ? 1 : 1.1);\n  const convertedAmount = amount * rate;\n  return {\n    from,\n    to,\n    amount,\n    convertedAmount: Number(convertedAmount.toFixed(2)),\n    rate: Number(rate.toFixed(4))\n  };\n}",
     "createdAt": "2026-06-24T18:49:20.000Z"
+  },
+  {
+    "id": "tool_1782429574899",
+    "name": "google_calendar_create_event",
+    "description": "Creates a new event in the Google Calendar. Requires summary, start time (ISO), and end time (ISO).",
+    "parameters": {
+      "properties": {
+        "end_time": {
+          "description": "ISO 8601 format end time",
+          "type": "STRING"
+        },
+        "location": {
+          "description": "Location of the event",
+          "type": "STRING"
+        },
+        "start_time": {
+          "description": "ISO 8601 format start time",
+          "type": "STRING"
+        },
+        "summary": {
+          "description": "Title of the event",
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "summary",
+        "start_time",
+        "end_time"
+      ],
+      "type": "OBJECT"
+    },
+    "code": "return {\n  status: 'success',\n  event: {\n    id: Math.random().toString(36).substring(7),\n    summary: parameters.summary,\n    start: parameters.start_time,\n    end: parameters.end_time,\n    location: parameters.location || 'Unspecified'\n  }\n};",
+    "mockResponse": "{\"status\": \"success\", \"event\": {\"id\": \"evt_12345\", \"summary\": \"Meeting with Team\", \"start\": \"2023-10-27T10:00:00Z\", \"end\": \"2023-10-27T11:00:00Z\", \"location\": \"Conference Room A\"}}"
+  },
+  {
+    "id": "tool_1782429574913",
+    "name": "google_calendar_list_events",
+    "description": "Lists upcoming events in the Google Calendar.",
+    "parameters": {
+      "properties": {
+        "time_min": {
+          "description": "ISO 8601 format for the start of the time range to search",
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "time_min"
+      ],
+      "type": "OBJECT"
+    },
+    "code": "return [\n  { id: 'evt_1', summary: 'Coffee with Sarah', start: '2023-10-27T09:00:00Z', end: '2023-10-27T10:00:00Z' },\n  { id: 'evt_2', summary: 'Project Sync', start: '2023-10-27T14:00:00Z', end: '2023-10-27T15:00:00Z' }\n];",
+    "mockResponse": "[{\"id\": \"evt_1\", \"summary\": \"Coffee with Sarah\", \"start\": \"2023-10-27T09:00:00Z\", \"end\": \"2023-10-27T10:00:00Z\"}, {\"id\": \"evt_2\", \"summary\": \"Project Sync\", \"start\": \"2023-10-27T14:00:00Z\", \"end\": \"2023-10-27T15:00:00Z\"}]"
+  },
+  {
+    "id": "tool_1782429574922",
+    "name": "google_calendar_delete_event",
+    "description": "Deletes a specific event from the Google Calendar using its eventId.",
+    "parameters": {
+      "properties": {
+        "eventId": {
+          "description": "The unique ID of the event to delete",
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "eventId"
+      ],
+      "type": "OBJECT"
+    },
+    "code": "return { status: 'success', message: `Event ${parameters.eventId} deleted.` };",
+    "mockResponse": "{\"status\": \"success\", \"message\": \"Event evt_12345 deleted.\"}"
   }
 ]

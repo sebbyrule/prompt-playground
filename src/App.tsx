@@ -8,6 +8,7 @@ import { Optimizer } from './components/Optimizer';
 import { Settings } from './components/Settings';
 import { AgentWorkspace } from './components/AgentWorkspace';
 import { PromptCopilot } from './components/PromptCopilot';
+import { ImageStudio } from './components/ImageStudio';
 
 function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
@@ -29,6 +30,8 @@ function App() {
         return <Dashboard />;
       case 'studio':
         return <PromptStudio />;
+      case 'image-studio':
+        return <ImageStudio />;
       case 'ab-testing':
         return <ABTesting />;
       case 'evaluator':

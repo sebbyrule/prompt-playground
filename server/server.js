@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { db } from './db.js';
@@ -2755,6 +2756,294 @@ app.get('/api/prompts/:promptId/git-history', (req, res) => {
 
     res.json({ gitEnabled: true, history });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// IMAGE STUDIO & COMFYUI INTEGRATION
+// ==========================================
+
+const IMAGES_DIR = path.join(__dirname, '..', 'data', 'images');
+if (!fs.existsSync(IMAGES_DIR)) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+}
+app.use('/data/images', express.static(IMAGES_DIR));
+
+const DEFAULT_COMFY_WORKFLOW = {
+  "3": {
+    "inputs": {
+      "seed": 100000,
+      "steps": 20,
+      "cfg": 8,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "4": {
+    "inputs": {
+      "ckpt_name": "v1-5-pruned-emaonly.ckpt"
+    },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "5": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage"
+  },
+  "6": {
+    "inputs": {
+      "text": "positive prompt",
+      "clip": ["4", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "7": {
+    "inputs": {
+      "text": "negative prompt",
+      "clip": ["4", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "8": {
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    },
+    "class_type": "VAEDecode"
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "PromptForge",
+      "images": ["8", 0]
+    },
+    "class_type": "SaveImage"
+  }
+};
+
+async function getComfyUiCheckpoints(comfyUrl) {
+  try {
+    const res = await fetch(`${comfyUrl}/object_info`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const loader = data.CheckpointLoaderSimple || data.CheckpointLoader;
+    if (loader && loader.input && loader.input.required && loader.input.required.ckpt_name) {
+      return loader.input.required.ckpt_name[0] || [];
+    }
+  } catch (e) {
+    console.error('Failed to fetch checkpoints from ComfyUI:', e);
+  }
+  return [];
+}
+
+function buildComfyWorkflow(params) {
+  if (params.customWorkflow) {
+    let workflowStr = params.customWorkflow;
+    workflowStr = workflowStr
+      .replace(/\{\{positive_prompt\}\}/g, JSON.stringify(params.positivePrompt || ""))
+      .replace(/\{\{negative_prompt\}\}/g, JSON.stringify(params.negativePrompt || ""))
+      .replace(/\{\{checkpoint\}\}/g, JSON.stringify(params.checkpoint || ""))
+      .replace(/\{\{seed\}\}/g, params.seed)
+      .replace(/\{\{steps\}\}/g, params.steps)
+      .replace(/\{\{cfg\}\}/g, params.cfg)
+      .replace(/\{\{sampler\}\}/g, JSON.stringify(params.sampler || "euler"))
+      .replace(/\{\{scheduler\}\}/g, JSON.stringify(params.scheduler || "normal"))
+      .replace(/\{\{width\}\}/g, params.width)
+      .replace(/\{\{height\}\}/g, params.height);
+    return JSON.parse(workflowStr);
+  }
+  
+  const workflow = JSON.parse(JSON.stringify(DEFAULT_COMFY_WORKFLOW));
+  workflow["3"].inputs.seed = Number(params.seed);
+  workflow["3"].inputs.steps = Number(params.steps);
+  workflow["3"].inputs.cfg = Number(params.cfg);
+  workflow["3"].inputs.sampler_name = params.sampler;
+  workflow["3"].inputs.scheduler = params.scheduler;
+  
+  workflow["4"].inputs.ckpt_name = params.checkpoint;
+  
+  workflow["5"].inputs.width = Number(params.width);
+  workflow["5"].inputs.height = Number(params.height);
+  
+  workflow["6"].inputs.text = params.positivePrompt;
+  workflow["7"].inputs.text = params.negativePrompt;
+  
+  return workflow;
+}
+
+// 1. Get saved image prompts
+app.get('/api/image-studio/prompts', (req, res) => {
+  res.json(db.getImagePrompts());
+});
+
+// 2. Save or update image prompt
+app.post('/api/image-studio/prompts', (req, res) => {
+  const prompt = req.body;
+  const prompts = db.getImagePrompts();
+  if (prompt.id) {
+    const idx = prompts.findIndex(p => p.id === prompt.id);
+    if (idx !== -1) {
+      prompts[idx] = { ...prompts[idx], ...prompt, updatedAt: new Date().toISOString() };
+    } else {
+      prompts.push(prompt);
+    }
+  } else {
+    prompt.id = `img_prompt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    prompt.createdAt = new Date().toISOString();
+    prompt.updatedAt = new Date().toISOString();
+    prompts.push(prompt);
+  }
+  db.saveImagePrompts(prompts);
+  res.json(prompt);
+});
+
+// 3. Delete saved image prompt
+app.delete('/api/image-studio/prompts/:id', (req, res) => {
+  const { id } = req.params;
+  const prompts = db.getImagePrompts();
+  const filtered = prompts.filter(p => p.id !== id);
+  db.saveImagePrompts(filtered);
+  res.json({ success: true });
+});
+
+// 4. Get image gallery
+app.get('/api/image-studio/gallery', (req, res) => {
+  res.json(db.getImageGallery());
+});
+
+// 5. Delete gallery item and local file
+app.delete('/api/image-studio/gallery/:id', (req, res) => {
+  const { id } = req.params;
+  const gallery = db.getImageGallery();
+  const item = gallery.find(i => i.id === id);
+  if (item) {
+    const filename = path.basename(item.imagePath);
+    const filePath = path.join(IMAGES_DIR, filename);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.error('Failed to delete image file:', err);
+    }
+  }
+  const filtered = gallery.filter(i => i.id !== id);
+  db.saveImageGallery(filtered);
+  res.json({ success: true });
+});
+
+// 6. Get checkpoints from ComfyUI
+app.get('/api/image-studio/comfy-checkpoints', async (req, res) => {
+  const comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+  const checkpoints = await getComfyUiCheckpoints(comfyUrl);
+  res.json(checkpoints);
+});
+
+// 7. Generate image via ComfyUI
+app.post('/api/image-studio/generate', async (req, res) => {
+  const params = req.body;
+  const comfyUrl = resolveLocalUrl(req.headers['x-comfyui-url'] || process.env.COMFYUI_URL || 'http://localhost:8188');
+
+  try {
+    const workflowObj = buildComfyWorkflow(params);
+    const promptRes = await fetch(`${comfyUrl}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: workflowObj })
+    });
+
+    if (!promptRes.ok) {
+      const errText = await promptRes.text();
+      throw new Error(`ComfyUI error: ${promptRes.status} - ${errText}`);
+    }
+
+    const promptData = await promptRes.json();
+    const { prompt_id } = promptData;
+
+    let completedData = null;
+    const maxAttempts = 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const historyRes = await fetch(`${comfyUrl}/history/${prompt_id}`);
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        if (historyData[prompt_id]) {
+          completedData = historyData[prompt_id];
+          break;
+        }
+      }
+    }
+
+    if (!completedData) {
+      throw new Error('Image generation timed out after 120 seconds.');
+    }
+
+    const outputs = completedData.outputs;
+    const downloadedImages = [];
+
+    for (const nodeId in outputs) {
+      const nodeOutput = outputs[nodeId];
+      if (nodeOutput.images && nodeOutput.images.length > 0) {
+        for (const img of nodeOutput.images) {
+          const viewUrl = `${comfyUrl}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${encodeURIComponent(img.type)}`;
+          const viewRes = await fetch(viewUrl);
+          if (!viewRes.ok) continue;
+          
+          const buffer = await viewRes.arrayBuffer();
+          const localFilename = `comfy_${Date.now()}_${img.filename}`;
+          const localPath = path.join(IMAGES_DIR, localFilename);
+          
+          fs.writeFileSync(localPath, Buffer.from(buffer));
+          downloadedImages.push({
+            filename: localFilename,
+            path: `/data/images/${localFilename}`
+          });
+        }
+      }
+    }
+
+    if (downloadedImages.length === 0) {
+      throw new Error('No images returned from ComfyUI output nodes.');
+    }
+
+    const gallery = db.getImageGallery();
+    const newItems = downloadedImages.map(img => {
+      const newItem = {
+        id: `img_gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        promptId: params.promptId || null,
+        promptName: params.promptName || 'Untitled Prompt',
+        positivePrompt: params.positivePrompt,
+        negativePrompt: params.negativePrompt,
+        checkpoint: params.checkpoint,
+        width: Number(params.width),
+        height: Number(params.height),
+        steps: Number(params.steps),
+        cfg: Number(params.cfg),
+        sampler: params.sampler,
+        scheduler: params.scheduler,
+        seed: Number(params.seed),
+        imagePath: img.path,
+        createdAt: new Date().toISOString()
+      };
+      gallery.unshift(newItem);
+      return newItem;
+    });
+
+    db.saveImageGallery(gallery);
+    res.json({ success: true, items: newItems });
+
+  } catch (error) {
+    console.error('Image generation failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
